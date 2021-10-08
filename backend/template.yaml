@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  news-2000 SAM config
+
+Globals:
+  Function:
+    Timeout: 10
+  Api:
+    EndpointConfiguration: REGIONAL
+    Cors:
+      AllowMethods: "'*'"
+      AllowHeaders: "'*'"
+      AllowOrigin: "'www.2000.news'"
+    Domain:
+      DomainName: api.2000.news
+      CertificateArn: arn:aws:acm:us-east-2:663940524453:certificate/a9364e96-df7e-4471-8c2b-fd484e557c7b
+      SecurityPolicy: TLS_1_2
+      EndpointConfiguration: REGIONAL
+
+Resources:
+
+  Stories:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Stories
+      AttributeDefinitions:
+        - AttributeName: YearMonthDay
+          AttributeType: S
+        - AttributeName: Title
+          AttributeType: S
+      KeySchema:
+        - AttributeName: YearMonthDay
+          KeyType: HASH
+        - AttributeName: Title
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  FetchStories:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src/
+      Handler: News2000::News2000.FetchStoriesHandler::FetchStories
+      Runtime: dotnetcore3.1
+      MemorySize: 1024
+      Environment:
+        Variables:
+          NEWS_API_KEY: xxx
+      Events:
+        ScheduledEvent:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Enabled: True
+          
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Stories
+
+  GetStories:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src/
+      Handler: News2000::News2000.GetStoriesHandler::GetStories
+      Runtime: dotnetcore3.1
+      MemorySize: 1024
+      Environment:
+        Variables:
+          SubversionRate: 0.85
+          MaxSubstitutionsPerStory: 3
+      Events:
+        GetStoriesApiEvent:
+          Type: Api
+          Properties:
+            Path: /stories
+            Method: get
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Stories
+
+Outputs:
+  GetStoriesApi:
+    Description: "Custom API Gateway endpoint for prod GetStories"
+    Value: "https://api.2000.news/stories"

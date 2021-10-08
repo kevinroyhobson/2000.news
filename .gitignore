@@ -1,0 +1,6 @@
+*.idea*
+backend/.aws-sam/*
+backend/src/bin/*
+backend/src/obj/*
+frontend/build/*
+frontend/node_modules/*

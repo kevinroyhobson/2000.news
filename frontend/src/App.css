@@ -1,0 +1,41 @@
+div.nyc-background {
+  position: relative;
+  background-image: url('./images/nyc.jpeg');
+  width: 100vw;
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-size: cover;
+  overflow: hidden;
+  background-attachment: fixed;
+}
+
+div.credit {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  background-color: #e8e8e8;
+  border-top: 1px solid black;
+}
+
+div.credit a {
+  font-family: 'Courier New', monospace;
+  color: black;
+  text-decoration: none;
+}
+
+@media(max-width: 600px) {
+  div.credit {
+    width: 100vw;
+    text-align: center;
+  }
+}
+
+@media(min-width: 600px){
+  div.nyc-background {
+    height: 100vh;
+  }
+
+  div.credit {
+    border-right: 1px solid black;
+  }
+}
