@@ -34,14 +34,34 @@ Resources:
           KeyType: HASH
         - AttributeName: Title
           KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
       ProvisionedThroughput:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
 
-  FetchStories:
+  Words:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Words
+      AttributeDefinitions:
+        - AttributeName: WordType
+          AttributeType: S
+        - AttributeName: Word
+          AttributeType: S
+      KeySchema:
+        - AttributeName: WordType
+          KeyType: HASH
+        - AttributeName: Word
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  Fetch:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: FetchStories/fetch_stories.fetch_stories
+      Handler: Fetch/fetch.fetch
       Runtime: python3.9
       MemorySize: 1024
       Environment:
@@ -58,19 +78,42 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref Stories
 
-  GetStories:
+  Subvert:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ./GetStories/
-      Handler: GetStories::GetStories.GetStoriesHandler::GetStories
-      Runtime: dotnet6
+      Handler: Subvert/subvert.subvert
+      Runtime: python3.9
+      MemorySize: 1024
+      Timeout: 60
+      Environment:
+        Variables:
+          OPENAI_API_KEY: xxx
+      Events:
+       DDBEvent:
+         Type: DynamoDB
+         Properties:
+           Stream: !GetAtt Stories.StreamArn
+           StartingPosition: TRIM_HORIZON
+           BatchSize: 3
+           Enabled: True
+          
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Stories
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Words
+
+  Get:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: Get/get.get
+      Runtime: python3.9
       MemorySize: 1024
       Environment:
         Variables:
-          SubversionRate: 0.85
-          MaxSubstitutionsPerStory: 3
+          SUBVERSION_RATE: 0.8
       Events:
-        GetStoriesApiEvent:
+        GetApiEvent:
           Type: Api
           Properties:
             Path: /stories
@@ -78,6 +121,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref Stories
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Words
 
 Outputs:
   GetStoriesApi:
