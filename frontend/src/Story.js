@@ -31,7 +31,7 @@ export default function Story(props) {
   return (
     <div className='story' onClick={onClick}>
 
-      {isHeadline &&
+      {isHeadline && story.ImageUrl &&
         <img className='headline-image'
              src={story.ImageUrl}
              alt={story.Title} />

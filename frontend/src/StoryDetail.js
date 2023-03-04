@@ -23,10 +23,12 @@ export default function StoryDetail(props) {
           {story.Description}
         </Box>
 
-        <Box mt={2}>
-          <img src={story.ImageUrl}
-               alt={story.Title} />
-        </Box>
+        {story.ImageUrl &&
+            <Box mt={2}>
+              <img src={story.ImageUrl}
+                   alt={story.Title}/>
+            </Box>
+        }
 
         <Box className='content'>
           {story.Content}
