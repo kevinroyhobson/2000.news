@@ -68,7 +68,9 @@ def is_ai_apology(title):
                           "I cannot perform this task",
                           "I cannot do this task",
                           "inappropriate content",
-                          "offensive content",]
+                          "offensive content",
+                          "OpenAI's content policy",
+                          "I cannot fulfill this request"]
     return any([phrase in title for phrase in phrases_to_exclude])
 
 
