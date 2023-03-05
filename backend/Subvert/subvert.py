@@ -121,6 +121,8 @@ def fetch_chat_gpt_rewrite(title, prompt):
     )
     subverted_title = response['choices'][0]['message']['content']
     subverted_title = subverted_title.strip()
+    if subverted_title.startswith("\"") and subverted_title.endswith("\""):
+        subverted_title = subverted_title[1:-1]
 
     print(f"Subverted title: {subverted_title} (used {response['usage']['total_tokens']} tokens)")
 
