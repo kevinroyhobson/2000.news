@@ -11,6 +11,9 @@ import Box from '@mui/material/Box';
 import './Newspaper.css'
 import Story from './Story';
 import StoryDetail from "./StoryDetail";
+import {useRecoilState} from "recoil";
+import isDebugModeState from "./state/isDebugModeState";
+import getStoryTitleDisplay from "./getStoryTitleDisplay";
 
 
 export default function Newspaper() {
@@ -20,6 +23,7 @@ export default function Newspaper() {
   const [storyOrder, setStoryOrder] = useState([1, 2, 3, 4]);
   const [selectedStory, setSelectedStory] = useState(null);
   const [selectedStoryClickLocation, setSelectedStoryClickLocation] = useState(null);
+  const [isDebugMode, setIsDebugMode] = useRecoilState(isDebugModeState);
 
   function loadPaper() {
     axios({
@@ -35,6 +39,18 @@ export default function Newspaper() {
 
   useEffect(() => {
     loadPaper();
+
+    function handleKeyDown(event) {
+      if (event.key === 'd') {
+        handleToggleDebugMode();
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+
+    return function cleanup() {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+
   }, []);
 
   function getEditionForDate(date) {
@@ -80,6 +96,11 @@ export default function Newspaper() {
     ReactGA.event({category: 'newspaper', action: 'close-and-reload'})
   }
 
+  function handleToggleDebugMode() {
+    ReactGA.event({category: 'newspaper', action: 'toggle-debug-mode'});
+    setIsDebugMode(currentValue => !currentValue);
+  }
+
   const date = DateTime.now();
 
   return (
@@ -101,13 +122,13 @@ export default function Newspaper() {
             {date.toLocaleString(DateTime.DATE_MED)}
           </span>
         </Box>
-        <Box className='edition'>
+        <Box className='edition' onClick={handleToggleDebugMode}>
           {getEditionForDate(date)} Edition
         </Box>
       </Box>
 
       <Box mt={3} mb={2} className='headline' onClick={(e) => handleStoryDetailOpen(e, stories[0])}>
-        {stories[0].Title}
+        {getStoryTitleDisplay(stories[0], isDebugMode)}
       </Box>
 
       <Box className='stories'>

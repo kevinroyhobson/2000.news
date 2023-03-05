@@ -3,11 +3,16 @@ import React from 'react';
 import Box from '@mui/material/Box';
 
 import StoryDetailBackingPanels from "./StoryDetailBackingPanels";
+import {useRecoilValue} from "recoil";
+import isDebugModeState from "./state/isDebugModeState";
+import getStoryTitleDisplay from "./getStoryTitleDisplay";
 
 
 export default function StoryDetail(props) {
 
   const { story, onClick, clickLocation } = props;
+
+  const isDebugMode = useRecoilValue(isDebugModeState);
 
   return (
     <div onClick={onClick}>
@@ -16,7 +21,7 @@ export default function StoryDetail(props) {
 
       <div className='story-detail'>
         <Box mb={2} className='title'>
-          {story.Title}
+          {getStoryTitleDisplay(story, isDebugMode)}
         </Box>
 
         <Box className='content'>
@@ -26,7 +31,7 @@ export default function StoryDetail(props) {
         {story.ImageUrl &&
             <Box mt={2}>
               <img src={story.ImageUrl}
-                   alt={story.Title}/>
+                   alt={getStoryTitleDisplay(story, isDebugMode)}/>
             </Box>
         }
 
