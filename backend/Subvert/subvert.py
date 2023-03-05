@@ -17,6 +17,10 @@ def subvert(event, context):
 
     for record in event['Records']:
 
+        if record['eventName'] != 'INSERT' and record['eventName'] != 'MODIFY':
+            print(f"Skipped record {record['eventID']} because it's not an INSERT or MODIFY event.")
+            continue
+
         story = dynamodb_json.loads(record['dynamodb']['NewImage'])
         print(f"story: {story}")
         if 'SubvertedTitles' in story and story['SubvertedTitles'] is not None:
