@@ -89,6 +89,10 @@ def save_story(story):
         print(f"Skipped story '{story['title']}' because it has no source.")
         return False
 
+    if 'image_url' not in story or story['image_url'] is None:
+        print(f"Skipped story '{story['title']}' because it has no image.")
+        return False
+
     try:
         _stories_table.put_item(
             Item={
