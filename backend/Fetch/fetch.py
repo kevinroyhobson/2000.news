@@ -118,7 +118,7 @@ def save_story(story):
 
     except ClientError as ex:
         if ex.response['Error']['Code'] == 'ConditionalCheckFailedException':
-            print(f"Skipped story '{story['title']} ({story['source_id']}' because it already exists.")
+            print(f"Skipped story '{story['title']}' ({story['source_id']}) because it already exists.")
         else:
             raise ex
 
