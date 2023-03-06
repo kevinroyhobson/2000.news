@@ -59,9 +59,8 @@ div.paper-name {
 div.headline {
     font-size: 56px;
     text-align: center;
-
     border-top: 1px solid black;
-
+    white-space: pre-wrap;
     cursor: zoom-in;
 }
 
@@ -127,6 +126,7 @@ div.story {
 
 div.story div.title {
     padding-bottom: 10px;
+    white-space: pre-wrap;
 }
 
 div.line {
