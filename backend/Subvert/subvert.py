@@ -47,11 +47,11 @@ def load_words():
 def compute_subverted_titles(title):
     subverted_titles = []
 
-    prompts = ["Rewrite this headline in a pithy, succinct style like the New York Post",
-               "Rewrite this headline so that it rhymes",
-               "Rewrite this headline so that it's yelling at you",
+    prompts = ["Rewrite this headline so that it rhymes",
                "Rewrite this headline so that it's a pun",
-               "Rewrite this headline like it's telling a secret"]
+               "Rewrite this headline with either assonance or alliteration",
+               "Rewrite this headline as a haiku and don't include a period at the end",
+               "Rewrite this headline so that it's angry"]
 
     for prompt in prompts:
         prompt = complete_prompt(prompt)
@@ -113,9 +113,10 @@ def complete_prompt(prompt):
 def fetch_chat_gpt_rewrite(title, prompt):
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": f"{prompt} {title}"}],
-        temperature=0.9,
-        max_tokens=100,
+        messages=[{"role": "system", "content": "You are a copywriter who writes short headlines in a pithy, succinct and funny style like the New York Post."},
+                  {"role": "user", "content": f"{prompt} {title}"}],
+        temperature=1.1,
+        max_tokens=50,
         frequency_penalty=0.5,
         presence_penalty=-0.5,
     )
