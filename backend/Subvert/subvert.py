@@ -1,8 +1,9 @@
 import os
+import string
+import random
+from collections import defaultdict
 import boto3
 import openai
-from collections import defaultdict
-import random
 from dynamodb_json import json_util as dynamodb_json
 
 openai.api_key = os.environ['OPENAI_API_KEY']
@@ -100,7 +101,7 @@ def get_replacement_word(word):
 
 def complete_prompt(prompt):
 
-    random_reference_word_type = random.choice(['place', 'person', 'noun'])
+    random_reference_word_type = random.choice(['noun', 'adjective', 'person'])
     random_reference = random.choice(list(_words_by_word_type[random_reference_word_type]))
 
     reference_phrases = ["and include a reference to",
@@ -112,8 +113,8 @@ def complete_prompt(prompt):
 
 def fetch_chat_gpt_rewrite(title, prompt):
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "system", "content": "You are a copywriter who writes short headlines in a pithy, succinct and funny style like the New York Post."},
+        model=os.environ['OPENAI_MODEL'],
+        messages=[{"role": "system", "content": "You are a copywriter who writes short headlines in a pithy, succinct, funny, satirical style like the New York Post."},
                   {"role": "user", "content": f"{prompt} {title}"}],
         temperature=1.1,
         max_tokens=50,
@@ -130,7 +131,8 @@ def fetch_chat_gpt_rewrite(title, prompt):
     return {
         'SubvertedTitle': subverted_title,
         'Prompt': f"{prompt} {title}",
-        'TotalTokens': response['usage']['total_tokens']
+        'Response': response,
+        'SubvertedTitleId': ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
     }
 
 

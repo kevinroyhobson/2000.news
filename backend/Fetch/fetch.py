@@ -1,5 +1,6 @@
 import os
 import datetime
+import string
 import random
 import boto3
 from botocore.exceptions import ClientError
@@ -12,24 +13,18 @@ _sources = {"abcnews",
             "bloomberg",
             "deadline",
             "financialtimes",
-            "foxnews",
-            "huffpost",
             "kron4",
             "latimes",
             "nasa",
             "nbcnews",
             "news-medical",
             "newyorkcbslocal",
-            "nypost",
             "nytimes",
             "si",
-            "skysports",
-            "theringer",
             "tmz",
             "usnews",
             "venturebeat",
-            "washingtonpost",
-            "wsj"}
+            "washingtonpost"}
 
 _dynamo_resource = boto3.resource('dynamodb')
 _stories_table = _dynamo_resource.Table('Stories')
@@ -50,7 +45,7 @@ def fetch(event, context):
             if save_story(story):
                 num_stories_saved += 1
 
-        if num_stories_saved >= 20:
+        if num_stories_saved >= 10:
             break
 
         if 'nextPage' not in stories_response or stories_response['nextPage'] is None:
@@ -110,7 +105,8 @@ def save_story(story):
                 'Keywords': story['keywords'],
                 'Category': story['category'],
                 'Source': story['source_id'],
-                'RetrievedTime': datetime.datetime.now().isoformat()
+                'RetrievedTime': datetime.datetime.now().isoformat(),
+                'StoryId': ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
             },
             ConditionExpression="attribute_not_exists(YearMonthDay) AND attribute_not_exists(Title)"
         )

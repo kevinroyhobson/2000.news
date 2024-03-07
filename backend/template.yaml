@@ -71,7 +71,7 @@ Resources:
         ScheduledEvent:
           Type: Schedule
           Properties:
-            Schedule: rate(30 minutes)
+            Schedule: rate(60 minutes)
             Enabled: True
           
       Policies:
@@ -88,6 +88,7 @@ Resources:
       Environment:
         Variables:
           OPENAI_API_KEY: xxx
+          OPENAI_MODEL: gpt-4-turbo-preview
       Events:
        DDBEvent:
          Type: DynamoDB
