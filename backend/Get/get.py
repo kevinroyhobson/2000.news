@@ -1,25 +1,42 @@
-import os
-import datetime
+from datetime import datetime
+from datetime import timedelta
 import json
 import random
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.info('Begin executing python')
 
 _dynamo_resource = boto3.resource('dynamodb')
 _stories_table = _dynamo_resource.Table('Stories')
 _words_table = _dynamo_resource.Table('Words')
 
+logger.info('End static dynamo setup')
+
 def get(event, context):
 
-    recent_stories = get_recent_stories()
-    recent_stories = [get_story_view_model(story) for story in recent_stories]
+    logger = logging.getLogger()
+    logger.info("Begin get")
+
+    params = parse_path_params(event)
+    logger.info(event)
+    isDebugMode = 'queryStringParameters' in event and event['queryStringParameters'] is not None and event['queryStringParameters'].get('debug') == 'true'
+
+    stories = get_stories_for_day(params['day']) if 'day' in params else get_recent_stories()
+    story_view_model_lists = [get_headline_view_models(story) for story in stories]
+    story_view_models = [view_model for view_models in story_view_model_lists for view_model in view_models]
+    story_view_models = order_stories(story_view_models, params.get('headline_slug', ''))
+
     paper_name = f"The {get_random_word_of_type('adjective').capitalize()} {get_random_word_of_type('newspaper-name').capitalize()}"
 
-    return {
+    retVal = {
         'statusCode': 200,
         'body': json.dumps({
             'PaperName': paper_name,
-            'Stories': recent_stories,
+            'Stories': story_view_models if isDebugMode else story_view_models[:4],
         }),
         'headers': {
             'Content-Type': 'application/json',
@@ -28,39 +45,66 @@ def get(event, context):
         }
     }
 
-def get_recent_stories():
+    logger.info("End get")
+    return retVal
 
-    recent_stories = get_stories_for_date(datetime.datetime.today())
-    if len(recent_stories) < 5:
-        yesterday = datetime.datetime.today() - datetime.timedelta(days=1)
-        yesterday_stories = get_stories_for_date(yesterday)
+
+def parse_path_params(event):
+    if 'pathParameters' in event and event['pathParameters'] is not None:
+        return {k:v for (k, v) in event['pathParameters'].items()}
+        
+    return {}
+
+
+def get_recent_stories():
+    
+    recent_stories = get_stories_for_day(get_day_key(datetime.today()))
+    if len(recent_stories) < 4:
+        yesterday = datetime.today() - timedelta(days=1)
+        yesterday_stories = get_stories_for_day(get_day_key(yesterday))
         recent_stories.extend(yesterday_stories)
 
-    return random.sample(recent_stories, 5)
+    return recent_stories
 
-def get_stories_for_date(date):
+
+def get_day_key(date):
+    return date.strftime('%Y%m%d')
+
+def get_stories_for_day(day_key):
+
+    logger.info(f"Getting stories for {day_key}")
+
     response = _stories_table.query(
-        KeyConditionExpression=Key('YearMonthDay').eq(date.strftime('%Y%m%d')),
+        KeyConditionExpression=Key('YearMonthDay').eq(day_key),
         FilterExpression=Attr('SubvertedTitles').exists()
     )
-    stories = response['Items']
 
-    return stories
+    logger.info(f"Got {len(response['Items'])} stories for {day_key}")
+    return response['Items']
 
 
-def get_story_view_model(story):
+def get_headline_view_models(story):
 
-    story['OriginalTitle'] = story['Title']
+    headlines = []
 
-    subversion_rate = float(os.environ['SUBVERSION_RATE'])
-    if subversion_rate > random.random():
-        subverted_titles_to_use = [title['SubvertedTitle'] for title in story['SubvertedTitles'] if not is_ai_apology(title['SubvertedTitle'])]
+    for title in story['SubvertedTitles']:
+        if not is_ai_apology(title['SubvertedTitle']):
+            headline = story.copy()
+            headline['Headline'] = title['SubvertedTitle']
+            headline['HeadlineId'] = title['SubvertedTitleId']
+            headline['OriginalHeadline'] = story['Title']
+            del headline['SubvertedTitles']
+            del headline['Title']
+            headlines.append(headline)
 
-        if any(subverted_titles_to_use):
-            story['Title'] = random.choice(subverted_titles_to_use)
-
+    story['Headline'] = story['Title']
+    story['HeadlineId'] = story['StoryId']
+    story['OriginalHeadline'] = story['Title']
     del story['SubvertedTitles']
-    return story
+    del story['Title']
+    headlines.append(story)
+
+    return headlines
 
 
 def is_ai_apology(title):
@@ -75,7 +119,30 @@ def is_ai_apology(title):
 
 
 def get_random_word_of_type(word_type):
+
+    logger.info(f"Getting words of type {word_type}")
+    
     words = _words_table.query(
         KeyConditionExpression=Key('WordType').eq(word_type),
     )['Items']
+    
+    logger.info(f"Got {len(words)} words of type {word_type}")
     return random.choice(words)['Word']
+
+
+def order_stories(stories, top_headline_id):
+    
+    random.shuffle(stories)
+    stories = bring_element_to_front(stories, 
+                                     lambda story: story['HeadlineId'] == top_headline_id)
+    
+    return stories
+
+
+def bring_element_to_front(list, predicate):
+    for i, item in enumerate(list):
+        if predicate(item):
+            list.insert(0, list.pop(i))
+            break
+
+    return list

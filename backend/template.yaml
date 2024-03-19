@@ -110,14 +110,21 @@ Resources:
       Handler: Get/get.get
       Runtime: python3.9
       MemorySize: 1024
-      Environment:
-        Variables:
-          SUBVERSION_RATE: 0.8
       Events:
-        GetApiEvent:
+        GetStoriesForTodayApiEvent:
           Type: Api
           Properties:
-            Path: /stories
+            Path: /today
+            Method: get
+        GetStoriesForDayApiEvent:
+          Type: Api
+          Properties:
+            Path: /{day}
+            Method: get
+        GetHeadlineApiEvent:
+          Type: Api
+          Properties:
+            Path: /{day}/{headline_slug}
             Method: get
       Policies:
         - DynamoDBCrudPolicy:
@@ -126,6 +133,12 @@ Resources:
             TableName: !Ref Words
 
 Outputs:
-  GetStoriesApi:
-    Description: "Custom API Gateway endpoint for prod GetStories"
-    Value: "https://api.2000.news/stories"
+  GetStoriesForTodayApi:
+    Description: "Custom API Gateway endpoint for prod GetStoriesForToday"
+    Value: "https://api.2000.news/today"
+  GetStoriesForDayApi:
+    Description: "Custom API Gateway endpoint for prod GetStoriesForDay"
+    Value: "https://api.2000.news/{day}"
+  GetHeadlineApi:
+    Description: "Custom API Gateway endpoint for prod GetHeadline"
+    Value: "https://api.2000.news/{day}/{headline_slug}/"

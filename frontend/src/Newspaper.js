@@ -1,40 +1,45 @@
-import React, { useEffect, useState } from 'react';
+import React, {useEffect, useState} from 'react';
+import {useRecoilState} from 'recoil';
 import ReactGA from 'react-ga';
-import { DateTime } from 'luxon';
+import {DateTime} from 'luxon';
 import axios from 'axios';
 import classNames from 'classnames';
-import _ from 'lodash';
 
 import Grid from '@mui/material/Grid';
 import Box from '@mui/material/Box';
 
 import './Newspaper.css'
 import Story from './Story';
-import StoryDetail from "./StoryDetail";
-import {useRecoilState} from "recoil";
-import isDebugModeState from "./state/isDebugModeState";
-import getStoryTitleDisplay from "./getStoryTitleDisplay";
+import StoryDetail from './StoryDetail';
+import isDebugModeState from './state/isDebugModeState';
+import getStoryTitleDisplay from './getStoryTitleDisplay';
 
 
 export default function Newspaper() {
 
   const [paperName, setPaperName] = useState([]);
   const [stories, setStories] = useState([]);
-  const [storyOrder, setStoryOrder] = useState([1, 2, 3, 4]);
   const [selectedStory, setSelectedStory] = useState(null);
   const [selectedStoryClickLocation, setSelectedStoryClickLocation] = useState(null);
   const [isDebugMode, setIsDebugMode] = useRecoilState(isDebugModeState);
 
   function loadPaper() {
-    axios({
-      method: 'get',
-      url: 'https://api.2000.news/stories/'
-    })
-      .then(function (response) {
-        setPaperName(response.data.PaperName);
-        setStories(response.data.Stories);
-        setStoryOrder(_.shuffle(storyOrder));
+    const defaultApiPath = '/today';
+    let path = window.location.pathname.length > 1 ? window.location.pathname : defaultApiPath;
+    loadFromPath(path)
+      .catch(function () {
+        loadFromPath(defaultApiPath);
       });
+  }
+
+  function loadFromPath(path) {
+    const request = axios.get(`https://api.2000.news${path}${isDebugMode ? '?debug=true' : ''}`);
+    request.then(function (response) {
+      setPaperName(response.data.PaperName);
+      setStories(response.data.Stories);
+    });
+
+    return request;
   }
 
   useEffect(() => {
@@ -45,6 +50,7 @@ export default function Newspaper() {
         handleToggleDebugMode();
       }
     }
+
     document.addEventListener('keydown', handleKeyDown);
 
     return function cleanup() {
@@ -75,15 +81,15 @@ export default function Newspaper() {
   }
 
   function handleStoryDetailOpen(clickEvent, story) {
-    if (story !== null &&
-        selectedStory !== null &&
-        selectedStory.Title === story.Title) {
+    if (story !== null && selectedStory !== null) {
       story = null;
     }
 
     setSelectedStory(story);
-    setSelectedStoryClickLocation({x: clickEvent.clientX,
-                                   y: clickEvent.clientY});
+    setSelectedStoryClickLocation({
+      x: clickEvent.clientX,
+      y: clickEvent.clientY
+    });
 
     ReactGA.event({category: 'newspaper', action: 'view-story-detail'})
   }
@@ -91,6 +97,7 @@ export default function Newspaper() {
   function handleClosePaper() {
     setStories([]);
     setSelectedStory(null);
+    window.history.pushState({page: 1}, "2000.news", "/");
     loadPaper();
 
     ReactGA.event({category: 'newspaper', action: 'close-and-reload'})
@@ -135,25 +142,25 @@ export default function Newspaper() {
 
         <Grid container spacing={2}>
 
-          <Grid item xs={12} md={2} order={{xs: 2, md: storyOrder[0]}}>
+          <Grid item xs={12} md={2} order={{xs: 2, md: 1}}>
             <Story story={stories[1]}
-                   onClick={(e) => handleStoryDetailOpen(e, stories[1])} />
+                   onClick={(e) => handleStoryDetailOpen(e, stories[1])}/>
           </Grid>
 
-          <Grid item xs={12} md={4} order={{xs: 1, md: storyOrder[1]}}>
+          <Grid item xs={12} md={4} order={{xs: 1, md: 2}}>
             <Story story={stories[0]}
                    isHeadline={true}
-                   onClick={(e) => handleStoryDetailOpen(e, stories[0])} />
+                   onClick={(e) => handleStoryDetailOpen(e, stories[0])}/>
           </Grid>
 
-          <Grid item xs={12} md={4} order={{xs: 3, md: storyOrder[2]}}>
+          <Grid item xs={12} md={4} order={3}>
             <Story story={stories[2]}
-                   onClick={(e) => handleStoryDetailOpen(e, stories[2])} />
+                   onClick={(e) => handleStoryDetailOpen(e, stories[2])}/>
           </Grid>
 
-          <Grid item xs={12} md={2} order={{xs: 4, md: storyOrder[3]}}>
+          <Grid item xs={12} md={2} order={4}>
             <Story story={stories[3]}
-                   onClick={(e) => handleStoryDetailOpen(e, stories[3])} />
+                   onClick={(e) => handleStoryDetailOpen(e, stories[3])}/>
           </Grid>
 
         </Grid>
@@ -161,9 +168,9 @@ export default function Newspaper() {
       </Box>
 
       {selectedStory !== null &&
-      <StoryDetail story={selectedStory}
-                   onClick={(e) => handleStoryDetailOpen(e, null)}
-                   clickLocation={selectedStoryClickLocation} />
+        <StoryDetail story={selectedStory}
+                     onClick={(e) => handleStoryDetailOpen(e, null)}
+                     clickLocation={selectedStoryClickLocation}/>
       }
 
     </div>
