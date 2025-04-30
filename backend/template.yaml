@@ -62,7 +62,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Fetch/fetch.fetch
-      Runtime: python3.9
+      Runtime: python3.11
       MemorySize: 1024
       Environment:
         Variables:
@@ -82,13 +82,13 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Subvert/subvert.subvert
-      Runtime: python3.9
+      Runtime: python3.11
       MemorySize: 1024
-      Timeout: 60
+      Timeout: 120
       Environment:
         Variables:
-          OPENAI_API_KEY: xxx
-          OPENAI_MODEL: gpt-4-turbo-preview
+          GEMINI_API_KEY: xxx
+          GEMINI_MODEL: gemini-2.5-flash-preview-04-17
       Events:
        DDBEvent:
          Type: DynamoDB
@@ -108,7 +108,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Get/get.get
-      Runtime: python3.9
+      Runtime: python3.11
       MemorySize: 1024
       Events:
         GetStoriesForTodayApiEvent:

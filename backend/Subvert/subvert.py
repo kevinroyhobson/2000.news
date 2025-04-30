@@ -1,150 +1,145 @@
 import os
 import string
 import random
-from collections import defaultdict
+import json
 import boto3
-import openai
+from decimal import Decimal
 from dynamodb_json import json_util as dynamodb_json
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
 
-openai.api_key = os.environ['OPENAI_API_KEY']
-
-_dynamo_resource = boto3.resource('dynamodb')
-_words_by_word_type = None
+_dynamo_resource = boto3.resource("dynamodb")
+load_dotenv()
 
 
 def subvert(event, context):
 
-    load_words()
+    for record in event["Records"]:
 
-    for record in event['Records']:
-
-        if record['eventName'] != 'INSERT' and record['eventName'] != 'MODIFY':
-            print(f"Skipped record {record['eventID']} because it's not an INSERT or MODIFY event.")
+        if record["eventName"] != "INSERT" and record["eventName"] != "MODIFY":
+            print(
+                f"Skipped record {record['eventID']} because it's not an INSERT or MODIFY event."
+            )
             continue
 
-        story = dynamodb_json.loads(record['dynamodb']['NewImage'])
+        story = dynamodb_json.loads(record["dynamodb"]["NewImage"])
         print(f"story: {story}")
-        if 'SubvertedTitles' in story and story['SubvertedTitles'] is not None:
+        if "SubvertedTitles" in story and story["SubvertedTitles"] is not None:
             print(f"Skipped {story['Title']} because it has already been subverted.")
             continue
 
-        story['SubvertedTitles'] = compute_subverted_titles(story['Title'])
+        story["SubvertedTitles"] = compute_subverted_titles(story["Title"], story.get("Description", ""))
         update_story(story)
 
 
-def load_words():
+def compute_subverted_titles(title: str, subtitle: str):
 
-    global _words_by_word_type
-    _words_by_word_type = defaultdict(set)
+    system_instruction = """
+    You are a copywriter who writes short and zany headlines in a pithy, funny, satirical style. Your headlines end up 
+    in the SimCIty 2000 newspaper -- like the old Llama Drama headlines of yore.
+    """
 
-    words_table = _dynamo_resource.Table('Words')
-    response = words_table.scan()
-    words = response['Items']
+    prompt = f"""
+    Create one or more alternative, more creative headlines for the following headline: "{title}". some other context: "{subtitle}".
 
-    for word in words:
-        _words_by_word_type[word['WordType']].add(word['Word'])
+    The best headlines are headlines that rhyme, or headlines that have a good pun, or headlines with a lot of alliteration 
+    or assonance, some funny format like a haiku, or just something kinda sarcastic. But also if there are things you think 
+    are really clever or funny then don't be afraid to use that too. If the headline is only a single phrase or sentence, it 
+    shouldn't end with a period.
 
+    Only choose headlines that you think are really clever and funny -- don't send me any garbage because I'm going to 
+    randomly choose the responses to show in the paper. You should also feel free to alter the headlines in some crazy ways 
+    too, even if it changes the meaning. But where the headline came from should still make sense. Use some of the following 
+    words/people/concepts if you want to alter things: "{', '.join(get_random_words(10))}".
+    
+    Return your answer as a JSON array of headlines. For each headline, include the rewritten headline content itself, a 
+    score from 0.0 to 1.0 of how funny you think this particular headline is, and an explanation of why it's funny. 
+    [{{"headline":"example headline", "funny_score": 0.75, "explanation": "why it's funny"}}]
+    """
 
-def compute_subverted_titles(title):
-    subverted_titles = []
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-    prompts = ["Rewrite this headline so that it rhymes",
-               "Rewrite this headline so that it's a pun",
-               "Rewrite this headline with either assonance or alliteration",
-               "Rewrite this headline as a haiku and don't include a period at the end",
-               "Rewrite this headline so that it's angry"]
+    response = client.models.generate_content(
+        model=os.getenv("GEMINI_MODEL"),
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            response_modalities=["TEXT"],
+            temperature=2.0,
+            thinking_config=types.ThinkingConfig(thinking_budget=1024)
+        ),
+    )
 
-    for prompt in prompts:
-        prompt = complete_prompt(prompt)
-        tweaked_title = replace_one_word(title)
-        subverted_title = fetch_chat_gpt_rewrite(tweaked_title, prompt)
-        subverted_titles.append(subverted_title)
+    response_text = response.candidates[0].content.parts[0].text.strip()    
+    subverted_titles = parse_subverted_titles_json_response(response_text)
+    subverted_titles = [format_subverted_title(title, prompt, response) for title in subverted_titles]
 
+    print(f"Parsed subverted titles: {subverted_titles}")
     return subverted_titles
 
 
-def replace_one_word(title):
-    candidates = get_candidate_words_to_alter(title)
-    random.Random().shuffle(candidates)
-
-    for candidate in candidates:
-        replacement_word = get_replacement_word(candidate)
-        if replacement_word is not None:
-            title = title.replace(candidate, replacement_word)
-            print(f"Replaced {candidate} with {replacement_word}. New title: {title}")
-            break
-
-    return title
-
-
-def get_candidate_words_to_alter(title):
-
-    candidates = title.split()
-
-    # Also check if each combination of two consecutive words together are considered a word. This is useful
-    # for full names.
-    for i in range(len(candidates) - 1):
-        candidates.append(f"{candidates[i]} {candidates[i + 1]}")
-
-    candidates = [c for c in candidates if len(c) > 3]
-    return candidates
+def parse_subverted_titles_json_response(response_text: str) -> list:
+    try:
+        # First try parsing the entire response as JSON
+        return json.loads(response_text)
+    except json.JSONDecodeError:
+        try:
+            # If that fails, try to find JSON array/object in the text
+            json_start = response_text.find('[')
+            if json_start == -1:
+                json_start = response_text.find('{')
+            json_end = response_text.rfind(']') + 1
+            if json_end == 0:
+                json_end = response_text.rfind('}') + 1
+            
+            if json_start != -1 and json_end != 0:
+                json_str = response_text[json_start:json_end]
+                return json.loads(json_str)
+            else:
+                raise ValueError("No valid JSON found in response")
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error parsing response: {e}")
+            print(f"Response text: {response_text}")
+            raise
 
 
-def get_replacement_word(word):
-
-    for word_type in _words_by_word_type.keys():
-        if word in _words_by_word_type[word_type]:
-            return random.choice(list(_words_by_word_type[word_type]))
-
-    return None
-
-
-def complete_prompt(prompt):
-
-    random_reference_word_type = random.choice(['noun', 'adjective', 'person'])
-    random_reference = random.choice(list(_words_by_word_type[random_reference_word_type]))
-
-    reference_phrases = ["and include a reference to",
-                         "and include an homage to",
-                         "and include a"]
-
-    return f"{prompt}, {random.choice(reference_phrases)} {random_reference}:"
-
-
-def fetch_chat_gpt_rewrite(title, prompt):
-    response = openai.ChatCompletion.create(
-        model=os.environ['OPENAI_MODEL'],
-        messages=[{"role": "system", "content": "You are a copywriter who writes short headlines in a pithy, succinct, funny, satirical style like the New York Post."},
-                  {"role": "user", "content": f"{prompt} {title}"}],
-        temperature=1.1,
-        max_tokens=50,
-        frequency_penalty=0.5,
-        presence_penalty=-0.5,
-    )
-    subverted_title = response['choices'][0]['message']['content']
-    subverted_title = subverted_title.strip()
-    if subverted_title.startswith("\"") and subverted_title.endswith("\""):
-        subverted_title = subverted_title[1:-1]
-
-    print(f"Subverted title: {subverted_title} (used {response['usage']['total_tokens']} tokens)")
-
+def format_subverted_title(subverted_title, prompt, response):
+    print(f"Subverted headline: {subverted_title['headline']}")
+    
     return {
-        'SubvertedTitle': subverted_title,
-        'Prompt': f"{prompt} {title}",
-        'Response': response,
-        'SubvertedTitleId': ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
+        "SubvertedTitle": subverted_title['headline'],
+        "FunnyScore": Decimal(str(subverted_title['funny_score'])),
+        "Explanation": subverted_title['explanation'],
+        "Prompt": prompt,
+        "ModelVersion": response.model_version,
+        "UsageMetadata": {
+            "prompt_token_count": response.usage_metadata.prompt_token_count,
+            "candidates_token_count": response.usage_metadata.candidates_token_count,
+            "total_token_count": response.usage_metadata.total_token_count
+        },
+        "SubvertedTitleId": "".join(
+            random.choices(string.ascii_lowercase + string.digits, k=5)
+        ),
     }
 
 
+def get_random_words(num_words: int):
+
+    words_table = _dynamo_resource.Table("Words")
+    response = words_table.scan()
+    words = response["Items"]
+    return random.sample([word["Word"] for word in words], num_words)
+
+
 def update_story(story):
-    stories_table = _dynamo_resource.Table('Stories')
+    stories_table = _dynamo_resource.Table("Stories")
     stories_table.update_item(
-        Key={
-            'YearMonthDay': story['YearMonthDay'],
-            'Title': story['Title']
-        },
+        Key={"YearMonthDay": story["YearMonthDay"], "Title": story["Title"]},
         UpdateExpression="set SubvertedTitles = :s",
-        ExpressionAttributeValues={
-            ':s': story['SubvertedTitles']
-        }
+        ExpressionAttributeValues={":s": story["SubvertedTitles"]},
     )
+
+
+if __name__ == "__main__":
+    compute_subverted_titles("test headline", "test subtitle")

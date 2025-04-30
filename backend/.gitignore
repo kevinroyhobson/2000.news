@@ -1,0 +1,23 @@
+# Python virtual environment
+.venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# AWS SAM
+.aws-sam/
+
+# Unit test / coverage reports
+.coverage
+.coverage.*
+htmlcov/
+
+# Local development
+.env
