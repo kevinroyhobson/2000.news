@@ -9,7 +9,7 @@ import requests
 
 _news_data_api_key = os.environ['NEWS_DATA_API_KEY']
 _news_data_endpoint = "https://newsdata.io/api/1/news"
-_sources = {"abcnews",
+_sources = ["abcnews",
             "bloomberg",
             "deadline",
             "financialtimes",
@@ -24,7 +24,7 @@ _sources = {"abcnews",
             "tmz",
             "usnews",
             "venturebeat",
-            "washingtonpost"}
+            "washingtonpost"]
 
 _dynamo_resource = boto3.resource('dynamodb')
 _stories_table = _dynamo_resource.Table('Stories')
