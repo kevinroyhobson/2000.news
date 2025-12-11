@@ -45,7 +45,7 @@ def fetch(event, context):
             if save_story(story):
                 num_stories_saved += 1
 
-        if num_stories_saved >= 10:
+        if num_stories_saved >= 5:
             break
 
         if 'nextPage' not in stories_response or stories_response['nextPage'] is None:

@@ -62,7 +62,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Fetch/fetch.fetch
-      Runtime: python3.11
+      Runtime: python3.13
       MemorySize: 1024
       Environment:
         Variables:
@@ -82,13 +82,20 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Subvert/subvert.subvert
-      Runtime: python3.11
+      Runtime: python3.13
       MemorySize: 1024
       Timeout: 120
       Environment:
         Variables:
+          ANTHROPIC_API_KEY: xxx
           GEMINI_API_KEY: xxx
-          GEMINI_MODEL: gemini-2.5-flash-preview-04-17
+          BRAINSTORM_PROVIDER: anthropic
+          BRAINSTORM_MODEL: claude-haiku-4-5
+          GENERATE_PROVIDER: anthropic
+          GENERATE_MODEL: claude-haiku-4-5
+          TOURNAMENT_PROVIDER: google
+          TOURNAMENT_MODEL: gemini-2.5-flash-lite
+
       Events:
        DDBEvent:
          Type: DynamoDB
@@ -108,7 +115,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Get/get.get
-      Runtime: python3.11
+      Runtime: python3.13
       MemorySize: 1024
       Events:
         GetStoriesForTodayApiEvent:
