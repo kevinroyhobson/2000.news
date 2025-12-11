@@ -189,3 +189,35 @@ div.story-detail-backing {
         display: none;
     }
 }
+
+.sibling-headlines {
+    border-top: 1px dashed #999;
+    padding-top: 10px;
+    font-size: 14px;
+}
+
+.sibling-headlines-header {
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: #666;
+}
+
+.sibling-headline {
+    margin-bottom: 6px;
+    line-height: 1.3;
+}
+
+.sibling-headline a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.sibling-headline a:hover {
+    text-decoration: underline;
+}
+
+.sibling-angle {
+    color: #888;
+    font-size: 12px;
+    font-style: italic;
+}

@@ -15,6 +15,8 @@ export default function StoryDetail(props) {
 
   const isDebugMode = useRecoilValue(isDebugModeState);
 
+  const siblingHeadlines = story.SiblingHeadlines || [];
+
   return (
     <div onClick={onClick}>
 
@@ -34,6 +36,25 @@ export default function StoryDetail(props) {
           <Box mt={2}>
             <img src={story.ImageUrl}
                  alt={getStoryTitleDisplay(story, isDebugMode)}/>
+          </Box>
+        }
+
+        {isDebugMode && siblingHeadlines.length > 0 &&
+          <Box mt={3} className='sibling-headlines'>
+            <Box className='sibling-headlines-header'>Other headline options:</Box>
+            {siblingHeadlines.map((sibling) => (
+              <Box key={sibling.HeadlineId} className='sibling-headline'>
+                <a
+                  href={`/${story.YearMonthDay}/${sibling.HeadlineId}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {sibling.Headline}
+                </a>
+                {sibling.Angle &&
+                  <span className='sibling-angle'> [{sibling.Angle}]</span>
+                }
+              </Box>
+            ))}
           </Box>
         }
 

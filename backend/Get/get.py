@@ -86,6 +86,25 @@ def get_stories_for_day(day_key):
 def get_headline_view_models(story):
 
     headlines = []
+    day = story['YearMonthDay']
+
+    # Build list of all headline options for this story (for sibling links)
+    all_headline_options = []
+    for title in story['SubvertedTitles']:
+        if not is_ai_apology(title['SubvertedTitle']):
+            all_headline_options.append({
+                'Headline': title['SubvertedTitle'],
+                'HeadlineId': title['SubvertedTitleId'],
+                'Angle': title.get('Angle', ''),
+                'AngleSetup': title.get('AngleSetup', ''),
+            })
+    # Add the original headline as an option too
+    all_headline_options.append({
+        'Headline': story['Title'],
+        'HeadlineId': story['StoryId'],
+        'Angle': 'original',
+        'AngleSetup': '',
+    })
 
     for title in story['SubvertedTitles']:
         if not is_ai_apology(title['SubvertedTitle']):
@@ -93,6 +112,7 @@ def get_headline_view_models(story):
             headline['Headline'] = title['SubvertedTitle']
             headline['HeadlineId'] = title['SubvertedTitleId']
             headline['OriginalHeadline'] = story['Title']
+            headline['SiblingHeadlines'] = [h for h in all_headline_options if h['HeadlineId'] != title['SubvertedTitleId']]
             del headline['SubvertedTitles']
             del headline['Title']
             headlines.append(headline)
@@ -100,6 +120,7 @@ def get_headline_view_models(story):
     story['Headline'] = story['Title']
     story['HeadlineId'] = story['StoryId']
     story['OriginalHeadline'] = story['Title']
+    story['SiblingHeadlines'] = [h for h in all_headline_options if h['HeadlineId'] != story['StoryId']]
     del story['SubvertedTitles']
     del story['Title']
     headlines.append(story)
