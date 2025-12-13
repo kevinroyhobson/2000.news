@@ -28,11 +28,13 @@ export default function StoryDetail(props) {
           <CopyStoryLink story={story}/>
         </Box>
 
-        <Box className='content'>
-          {story.Description}
-        </Box>
+        {!isDebugMode &&
+          <Box className='content'>
+            {story.Description}
+          </Box>
+        }
 
-        {story.ImageUrl &&
+        {!isDebugMode && story.ImageUrl &&
           <Box mt={2}>
             <img src={story.ImageUrl}
                  alt={getStoryTitleDisplay(story, isDebugMode)}/>
@@ -52,6 +54,9 @@ export default function StoryDetail(props) {
                 </a>
                 {sibling.Angle &&
                   <span className='sibling-angle'> [{sibling.Angle}]</span>
+                }
+                {sibling.Rank != null &&
+                  <span className='sibling-rank'> (rank: {sibling.Rank})</span>
                 }
               </Box>
             ))}

@@ -1,7 +1,13 @@
 const getStoryTitleDisplay = (story, isDebugMode) => {
-  return isDebugMode
-    ? `${story.OriginalHeadline} (${story.Source})`
-    : story.Headline;
+  if (isDebugMode) {
+    return `${story.OriginalHeadline} (${story.Source})`;
+  }
+
+  if (story.ShowOriginal) {
+    return story.OriginalHeadline;
+  }
+
+  return story.Headline;
 };
 
 export default getStoryTitleDisplay;

@@ -58,6 +58,24 @@ Resources:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
 
+  SubvertedHeadlines:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: SubvertedHeadlines
+      AttributeDefinitions:
+        - AttributeName: YearMonthDay
+          AttributeType: S
+        - AttributeName: HeadlineId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: YearMonthDay
+          KeyType: HASH
+        - AttributeName: HeadlineId
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
   Fetch:
     Type: AWS::Serverless::Function
     Properties:
@@ -68,12 +86,28 @@ Resources:
         Variables:
           NEWS_DATA_API_KEY: xxx
       Events:
-        ScheduledEvent:
+        # 4x/day: 5am, 11am, 3pm, 8pm PT (UTC: 13, 19, 23, 04)
+        FetchMorning:
           Type: Schedule
           Properties:
-            Schedule: rate(60 minutes)
+            Schedule: cron(0 13 * * ? *)
             Enabled: True
-          
+        FetchMidday:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 19 * * ? *)
+            Enabled: True
+        FetchAfternoon:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 23 * * ? *)
+            Enabled: True
+        FetchEvening:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 4 * * ? *)
+            Enabled: True
+
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref Stories
@@ -106,10 +140,35 @@ Resources:
            Enabled: True
           
       Policies:
-        - DynamoDBCrudPolicy:
+        - DynamoDBReadPolicy:
             TableName: !Ref Stories
         - DynamoDBCrudPolicy:
+            TableName: !Ref SubvertedHeadlines
+        - DynamoDBCrudPolicy:
             TableName: !Ref Words
+
+  Tournament:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: Tournament/tournament.tournament
+      Runtime: python3.13
+      MemorySize: 1024
+      Timeout: 300
+      Environment:
+        Variables:
+          ANTHROPIC_API_KEY: xxx
+          GEMINI_API_KEY: xxx
+          TOURNAMENT_PROVIDER: google
+          TOURNAMENT_MODEL: gemini-2.5-flash-lite
+      Events:
+        HourlyTournament:
+          Type: Schedule
+          Properties:
+            Schedule: rate(60 minutes)
+            Enabled: True
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubvertedHeadlines
 
   Get:
     Type: AWS::Serverless::Function
@@ -134,8 +193,10 @@ Resources:
             Path: /{day}/{headline_slug}
             Method: get
       Policies:
-        - DynamoDBCrudPolicy:
+        - DynamoDBReadPolicy:
             TableName: !Ref Stories
+        - DynamoDBReadPolicy:
+            TableName: !Ref SubvertedHeadlines
         - DynamoDBCrudPolicy:
             TableName: !Ref Words
 

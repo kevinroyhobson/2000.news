@@ -2,9 +2,10 @@ import os
 import string
 import random
 import json
+import datetime
 import boto3
+from boto3.dynamodb.conditions import Key
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from decimal import Decimal
 from dynamodb_json import json_util as dynamodb_json
 from google import genai
 from google.genai import types
@@ -12,6 +13,7 @@ import anthropic
 from dotenv import load_dotenv
 
 _dynamo_resource = boto3.resource("dynamodb")
+_headlines_table = _dynamo_resource.Table("SubvertedHeadlines")
 load_dotenv()
 
 # =============================================================================
@@ -71,8 +73,11 @@ def subvert(event, context):
             continue
 
         story = dynamodb_json.loads(record["dynamodb"]["NewImage"])
-        if "SubvertedTitles" in story and story["SubvertedTitles"] is not None:
-            print(f"Skipped {story['Title']} because it has already been subverted.")
+        story_id = story.get("StoryId", "")
+
+        # Check if headlines already exist for this story in SubvertedHeadlines
+        if story_id and do_headlines_exist_for_story(story["YearMonthDay"], story_id):
+            print(f"Skipped {story['Title']} because headlines already exist.")
             continue
 
         records_to_process.append(story)
@@ -98,12 +103,12 @@ def subvert(event, context):
 
 
 def process_story(story):
-    """Process a single story - compute subverted titles and save."""
+    """Process a single story - compute subverted titles and save to SubvertedHeadlines."""
     print(f"Starting: {story['Title']}")
-    story["SubvertedTitles"] = compute_subverted_titles(
+    headlines = compute_subverted_titles(
         story["Title"], story.get("Description", "")
     )
-    update_story(story)
+    save_headlines(story, headlines)
 
 
 def compute_subverted_titles(title: str, subtitle: str):
@@ -122,7 +127,7 @@ def compute_subverted_titles(title: str, subtitle: str):
     print(f"Generated {len(candidates)} candidate headlines")
 
     print(f"=== STAGE 3: TOURNAMENT ===")
-    winners = stage_3_tournament(candidates, num_winners=4)
+    winners = stage_3_tournament(candidates, num_winners=15)
     print(f"Selected {len(winners)} winners")
 
     return winners
@@ -143,7 +148,7 @@ CONTEXT: "{subtitle}"
 Your task:
 1. Identify the key nouns/verbs that could be punned or rhymed
 2. Think of pop culture references, memes, wordplay or alliteration/assonance opportunities
-3. Generate 4-5 distinct comedic angles to explore
+3. Generate 6-7 distinct comedic angles to explore
 
 Consider these random words/concepts for inspiration (use if they fit naturally): {', '.join(random_words)}
 
@@ -166,7 +171,7 @@ Return as JSON array:
             {"angle_name": "absurd", "setup": "Go weird", "keywords": []},
         ]
 
-    return angles[:5]  # Cap at 5 angles
+    return angles[:7]  # Cap at 7 angles
 
 
 def stage_2_generate(title: str, subtitle: str, angles: list) -> list:
@@ -176,7 +181,7 @@ def stage_2_generate(title: str, subtitle: str, angles: list) -> list:
     all_candidates = []
 
     for angle in angles:
-        prompt = f"""Write 2-3 funny headlines based on this angle.
+        prompt = f"""Write 3-4 funny headlines based on this angle.
 
 ORIGINAL HEADLINE: "{title}"
 CONTEXT: "{subtitle}"
@@ -213,46 +218,35 @@ Return as JSON array:
     return all_candidates
 
 
-def stage_3_tournament(candidates: list, num_winners: int = 4) -> list:
+def stage_3_tournament(candidates: list, num_winners: int = 15) -> list:
     """
     Run pairwise comparisons to select the funniest headlines.
-    More reliable than self-scoring.
+    Eliminates one loser at a time until we have num_winners remaining.
     """
     if len(candidates) <= num_winners:
         return [format_winner(c) for c in candidates]
 
     # Shuffle to avoid position bias
-    random.shuffle(candidates)
-    current_round = candidates.copy()
+    remaining = candidates.copy()
+    random.shuffle(remaining)
 
-    # Run elimination rounds until we have our winners
-    round_num = 1
-    while len(current_round) > num_winners:
-        print(f"--- Tournament Round {round_num} ({len(current_round)} competitors) ---")
-        next_round = []
+    match_num = 1
+    while len(remaining) > num_winners:
+        # Pick two random candidates to compare
+        a, b = random.sample(remaining, 2)
+        winner = compare_pair(a, b)
+        loser = b if winner == a else a
 
-        # Process pairs
-        for i in range(0, len(current_round) - 1, 2):
-            a = current_round[i]
-            b = current_round[i + 1]
-            winner = compare_pair(a, b)
-            next_round.append(winner)
-            loser = b if winner == a else a
-            print(f"  WINNER: {winner['headline']}")
-            print(f"  loser:  {loser['headline']}")
-            print()
+        print(f"Match {match_num}: ({len(remaining)} remaining)")
+        print(f"  WINNER: {winner['headline']}")
+        print(f"  loser:  {loser['headline']}")
+        print()
 
-        # If odd number, last one gets a bye
-        if len(current_round) % 2 == 1:
-            bye = current_round[-1]
-            next_round.append(bye)
-            print(f"  BYE: {bye['headline']}")
-            print()
+        # Remove only the loser
+        remaining.remove(loser)
+        match_num += 1
 
-        current_round = next_round
-        round_num += 1
-
-    return [format_winner(c) for c in current_round]
+    return [format_winner(c) for c in remaining]
 
 
 def compare_pair(a: dict, b: dict) -> dict:
@@ -383,14 +377,38 @@ def get_random_words(num_words: int):
     return random.sample([word["Word"] for word in words], min(num_words, len(words)))
 
 
-def update_story(story):
-    """Update the story in DynamoDB with the subverted titles."""
-    stories_table = _dynamo_resource.Table("Stories")
-    stories_table.update_item(
-        Key={"YearMonthDay": story["YearMonthDay"], "Title": story["Title"]},
-        UpdateExpression="set SubvertedTitles = :s",
-        ExpressionAttributeValues={":s": story["SubvertedTitles"]},
+def save_headlines(story: dict, headlines: list):
+    """Save each headline as a separate item in SubvertedHeadlines table."""
+    create_time = datetime.datetime.now().isoformat()
+    year_month_day = story["YearMonthDay"]
+    story_id = story["StoryId"]
+    original_headline = story["Title"]
+
+    for headline in headlines:
+        _headlines_table.put_item(
+            Item={
+                "YearMonthDay": year_month_day,
+                "HeadlineId": headline["SubvertedTitleId"],
+                "CreateTime": create_time,
+                "Headline": headline["SubvertedTitle"],
+                "Angle": headline.get("Angle", ""),
+                "AngleSetup": headline.get("AngleSetup", ""),
+                "StoryId": story_id,
+                "OriginalHeadline": original_headline,
+            }
+        )
+    print(f"Saved {len(headlines)} headlines for story {story_id}")
+
+
+def do_headlines_exist_for_story(year_month_day: str, story_id: str) -> bool:
+    """Check if any headlines already exist for this story."""
+    response = _headlines_table.query(
+        KeyConditionExpression=Key("YearMonthDay").eq(year_month_day),
+        FilterExpression="StoryId = :sid",
+        ExpressionAttributeValues={":sid": story_id},
+        Limit=1,
     )
+    return len(response.get("Items", [])) > 0
 
 
 if __name__ == "__main__":

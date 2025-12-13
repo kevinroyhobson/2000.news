@@ -9,65 +9,103 @@ import requests
 
 _news_data_api_key = os.environ['NEWS_DATA_API_KEY']
 _news_data_endpoint = "https://newsdata.io/api/1/news"
-_sources = ["abcnews",
-            "bloomberg",
-            "deadline",
-            "financialtimes",
-            "kron4",
-            "latimes",
-            "nasa",
-            "nbcnews",
-            "news-medical",
-            "newyorkcbslocal",
-            "nytimes",
-            "si",
-            "tmz",
-            "usnews",
-            "venturebeat",
-            "washingtonpost"]
+
+# 5 main categories (prioritydomain=top for quality) + 1 wildcard (no filters for variety)
+_categories = ["business", "entertainment", "sports", "technology", "politics"]
+_wildcard = "wildcard"
 
 _dynamo_resource = boto3.resource('dynamodb')
 _stories_table = _dynamo_resource.Table('Stories')
 
 
 def fetch(event, context):
-    this_instance_sources = random.sample(_sources, 5)
-    stories_response = fetch_stories(this_instance_sources)
+    """
+    Fetch stories from 5 categories + 1 wildcard, saving up to 5 stories each.
+    Runs 4x/day (5am, 11am, 3pm, 8pm PT).
+    Main categories use prioritydomain=top for top 10% of news sources.
+    Wildcard has no category/priority filters to surface diverse and unusual stories.
+    Budget: ~6 fetches × 3 pages max = 18 API credits per run, 72/day (well within 200 free tier limit).
+    """
+    total_saved = 0
+    total_processed = 0
+    results_by_category = {}
 
-    num_stories_saved = 0
-    num_stories_processed = 0
-    num_api_calls = 1
+    # Fetch main categories with prioritydomain=top
+    for category in _categories:
+        saved, processed = fetch_category(category, use_priority=True)
+        results_by_category[category] = saved
+        total_saved += saved
+        total_processed += processed
+
+    # Fetch wildcard (no category, no priority filter) for variety
+    saved, processed = fetch_category(_wildcard, use_priority=False)
+    results_by_category[_wildcard] = saved
+    total_saved += saved
+    total_processed += processed
+
+    result = f"Saved {total_saved} stories across {len(results_by_category)} categories: {results_by_category}"
+    print(result)
+    return result
+
+
+def fetch_category(category, use_priority=True):
+    """Fetch up to 5 stories for a category."""
+    saved_for_category = 0
+    processed_for_category = 0
+    num_api_calls = 0
+
+    print(f"Fetching category: {category} (priority={use_priority})")
+    stories_response = fetch_stories_by_category(category if category != _wildcard else None, use_priority)
+    num_api_calls += 1
 
     while True:
-        for story in stories_response['results']:
-            print(f"Processing story '{story['title']}' ({story['source_id']})")
-            num_stories_processed += 1
-            if save_story(story):
-                num_stories_saved += 1
+        if 'results' not in stories_response or stories_response['results'] is None:
+            print(f"No results for category {category}")
+            break
 
-        if num_stories_saved >= 5:
+        for story in stories_response['results']:
+            source = story.get('source_id', 'unknown')
+            print(f"Processing [{category}] '{story['title']}' ({source})")
+            processed_for_category += 1
+            if save_story(story, category):
+                saved_for_category += 1
+                if saved_for_category >= 5:
+                    break
+
+        if saved_for_category >= 5:
             break
 
         if 'nextPage' not in stories_response or stories_response['nextPage'] is None:
             break
 
-        if num_api_calls >= 4:
+        if num_api_calls >= 3:  # Max 3 pages per category
             break
 
-        stories_response = fetch_stories(this_instance_sources, stories_response['nextPage'])
+        stories_response = fetch_stories_by_category(
+            category if category != _wildcard else None,
+            use_priority,
+            stories_response['nextPage']
+        )
         num_api_calls += 1
 
-    human_readable_result = f"Processed {num_stories_processed} stories of {stories_response['totalResults']} total stories. Saved {num_stories_saved} stories."
-    print(human_readable_result)
-    return human_readable_result
+    print(f"Category {category}: saved {saved_for_category}/{processed_for_category}")
+    return saved_for_category, processed_for_category
 
 
-def fetch_stories(sources, page_token=None):
-    query_params = f"country=us&language=en&domain={','.join(sources)}&apikey={_news_data_api_key}"
+def fetch_stories_by_category(category, use_priority=True, page_token=None):
+    """Fetch stories from newsdata.io API."""
+    query_params = f"country=us&language=en&apikey={_news_data_api_key}"
+
+    if category is not None:
+        query_params += f"&category={category}"
+
+    if use_priority:
+        query_params += "&prioritydomain=top"
+
     if page_token is not None:
         query_params += f"&page={page_token}"
 
-    print(f"Fetching stories with query params: {query_params}")
+    print(f"Fetching: {_news_data_endpoint}?{query_params.replace(_news_data_api_key, 'xxx')}")
     response = requests.get(f"{_news_data_endpoint}?{query_params}").json()
 
     if response['status'] == 'error':
@@ -79,11 +117,8 @@ def fetch_stories(sources, page_token=None):
     return response
 
 
-def save_story(story):
-    if 'source_id' not in story or story['source_id'] not in _sources:
-        print(f"Skipped story '{story['title']}' because it has no source.")
-        return False
-
+def save_story(story, fetch_category):
+    """Save a story to DynamoDB if it has required fields and doesn't already exist."""
     if 'image_url' not in story or story['image_url'] is None:
         print(f"Skipped story '{story['title']}' because it has no image.")
         return False
@@ -95,16 +130,17 @@ def save_story(story):
                 'PublishedAt': story['pubDate'],
                 'Title': story['title'],
                 'Description': story['description'],
-                'Author': story['creator'],
-                'Content': story['content'],
+                'Author': story.get('creator'),
+                'Content': story.get('content'),
                 'Url': story['link'],
                 'ImageUrl': story['image_url'],
-                'VideoUrl': story['video_url'],
-                'Language': story['language'],
-                'Country': story['country'],
-                'Keywords': story['keywords'],
-                'Category': story['category'],
-                'Source': story['source_id'],
+                'VideoUrl': story.get('video_url'),
+                'Language': story.get('language'),
+                'Country': story.get('country'),
+                'Keywords': story.get('keywords'),
+                'Category': story.get('category', [fetch_category]),
+                'FetchCategory': fetch_category,
+                'Source': story.get('source_id'),
                 'RetrievedTime': datetime.datetime.now().isoformat(),
                 'StoryId': ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
             },
@@ -114,7 +150,7 @@ def save_story(story):
 
     except ClientError as ex:
         if ex.response['Error']['Code'] == 'ConditionalCheckFailedException':
-            print(f"Skipped story '{story['title']}' ({story['source_id']}) because it already exists.")
+            print(f"Skipped story '{story['title']}' because it already exists.")
         else:
             raise ex
 

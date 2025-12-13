@@ -1,43 +1,57 @@
 from datetime import datetime
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 import json
+from decimal import Decimal
 import random
 import boto3
-from boto3.dynamodb.conditions import Key, Attr
+from boto3.dynamodb.conditions import Key
 import logging
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-logger.info('Begin executing python')
 
 _dynamo_resource = boto3.resource('dynamodb')
+_headlines_table = _dynamo_resource.Table('SubvertedHeadlines')
 _stories_table = _dynamo_resource.Table('Stories')
 _words_table = _dynamo_resource.Table('Words')
 
-logger.info('End static dynamo setup')
 
 def get(event, context):
-
-    logger = logging.getLogger()
     logger.info("Begin get")
+    logger.info(event)
 
     params = parse_path_params(event)
-    logger.info(event)
-    isDebugMode = 'queryStringParameters' in event and event['queryStringParameters'] is not None and event['queryStringParameters'].get('debug') == 'true'
 
-    stories = get_stories_for_day(params['day']) if 'day' in params else get_recent_stories()
-    story_view_model_lists = [get_headline_view_models(story) for story in stories]
-    story_view_models = [view_model for view_models in story_view_model_lists for view_model in view_models]
-    story_view_models = order_stories(story_view_models, params.get('headline_slug', ''))
+    # Get the day to query
+    if 'day' in params:
+        day_key = params['day']
+    else:
+        day_key = get_day_key()
 
-    paper_name = f"The {get_random_word_of_type('adjective').capitalize()} {get_random_word_of_type('newspaper-name').capitalize()}"
+    # Get headlines and select the best ones
+    headlines = get_headlines_for_day(day_key)
 
-    retVal = {
+    # If not enough headlines, include yesterday
+    if len(headlines) < 4:
+        yesterday_key = get_day_key(datetime.now(ZoneInfo('America/New_York')) - timedelta(days=1))
+        headlines.extend(get_headlines_for_day(yesterday_key))
+
+    # Select 4 headlines using expanding pool algorithm
+    requested_headline_id = params.get('headline_slug', '')
+    selected = select_headlines(headlines, requested_headline_id)
+
+    # Get story details for selected headlines
+    stories = enrich_with_story_details(selected)
+
+    paper_name = f"The {get_random_word('adjective').capitalize()} {get_random_word('newspaper-name').capitalize()}"
+
+    return {
         'statusCode': 200,
         'body': json.dumps({
             'PaperName': paper_name,
-            'Stories': story_view_models if isDebugMode else story_view_models[:4],
-        }),
+            'Stories': stories,
+        }, default=lambda x: int(x) if isinstance(x, Decimal) and x % 1 == 0 else float(x) if isinstance(x, Decimal) else str(x)),
         'headers': {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
@@ -45,125 +59,166 @@ def get(event, context):
         }
     }
 
-    logger.info("End get")
-    return retVal
-
 
 def parse_path_params(event):
     if 'pathParameters' in event and event['pathParameters'] is not None:
-        return {k:v for (k, v) in event['pathParameters'].items()}
-        
+        return {k: v for (k, v) in event['pathParameters'].items()}
     return {}
 
 
-def get_recent_stories():
-    
-    recent_stories = get_stories_for_day(get_day_key(datetime.today()))
-    if len(recent_stories) < 4:
-        yesterday = datetime.today() - timedelta(days=1)
-        yesterday_stories = get_stories_for_day(get_day_key(yesterday))
-        recent_stories.extend(yesterday_stories)
-
-    return recent_stories
-
-
-def get_day_key(date):
+def get_day_key(date=None):
+    """Get day key in YYYYMMDD format, using New York timezone."""
+    if date is None:
+        date = datetime.now(ZoneInfo('America/New_York'))
     return date.strftime('%Y%m%d')
 
-def get_stories_for_day(day_key):
 
-    logger.info(f"Getting stories for {day_key}")
-
-    response = _stories_table.query(
-        KeyConditionExpression=Key('YearMonthDay').eq(day_key),
-        FilterExpression=Attr('SubvertedTitles').exists()
+def get_headlines_for_day(day_key):
+    """Query all headlines for a day from SubvertedHeadlines."""
+    logger.info(f"Getting headlines for {day_key}")
+    response = _headlines_table.query(
+        KeyConditionExpression=Key('YearMonthDay').eq(day_key)
     )
-
-    logger.info(f"Got {len(response['Items'])} stories for {day_key}")
-    return response['Items']
-
-
-def get_headline_view_models(story):
-
-    headlines = []
-    day = story['YearMonthDay']
-
-    # Build list of all headline options for this story (for sibling links)
-    all_headline_options = []
-    for title in story['SubvertedTitles']:
-        if not is_ai_apology(title['SubvertedTitle']):
-            all_headline_options.append({
-                'Headline': title['SubvertedTitle'],
-                'HeadlineId': title['SubvertedTitleId'],
-                'Angle': title.get('Angle', ''),
-                'AngleSetup': title.get('AngleSetup', ''),
-            })
-    # Add the original headline as an option too
-    all_headline_options.append({
-        'Headline': story['Title'],
-        'HeadlineId': story['StoryId'],
-        'Angle': 'original',
-        'AngleSetup': '',
-    })
-
-    for title in story['SubvertedTitles']:
-        if not is_ai_apology(title['SubvertedTitle']):
-            headline = story.copy()
-            headline['Headline'] = title['SubvertedTitle']
-            headline['HeadlineId'] = title['SubvertedTitleId']
-            headline['OriginalHeadline'] = story['Title']
-            headline['SiblingHeadlines'] = [h for h in all_headline_options if h['HeadlineId'] != title['SubvertedTitleId']]
-            del headline['SubvertedTitles']
-            del headline['Title']
-            headlines.append(headline)
-
-    story['Headline'] = story['Title']
-    story['HeadlineId'] = story['StoryId']
-    story['OriginalHeadline'] = story['Title']
-    story['SiblingHeadlines'] = [h for h in all_headline_options if h['HeadlineId'] != story['StoryId']]
-    del story['SubvertedTitles']
-    del story['Title']
-    headlines.append(story)
-
+    headlines = response.get('Items', [])
+    logger.info(f"Got {len(headlines)} headlines for {day_key}")
     return headlines
 
 
-def is_ai_apology(title):
-    phrases_to_exclude = ["an AI language model",
-                          "I cannot perform this task",
-                          "I cannot do this task",
-                          "inappropriate content",
-                          "offensive content",
-                          "OpenAI's content policy",
-                          "I cannot fulfill this request"]
-    return any([phrase in title for phrase in phrases_to_exclude])
+def select_headlines(headlines, requested_headline_id):
+    """
+    Select 4 headlines using expanding pool algorithm.
+    Ensures unique StoryIds and favors higher-ranked headlines.
+
+    Pool sizes: 8, 16, 32, 64 - pick one randomly from each pool, ensuring unique stories.
+    """
+    if not headlines:
+        return []
+
+    # Find max rank for sorting unranked items last
+    max_rank = max((h.get('Rank') or 0 for h in headlines), default=0)
+
+    def get_rank(h):
+        return h.get('Rank') or (max_rank + 1)
+
+    # Sort by rank
+    sorted_headlines = sorted(headlines, key=get_rank)
+
+    result = []
+    picked_story_ids = set()
+
+    # If a specific headline is requested, put it first
+    if requested_headline_id:
+        for h in sorted_headlines:
+            if h['HeadlineId'] == requested_headline_id:
+                result.append(h)
+                picked_story_ids.add(h['StoryId'])
+                break
+
+    # Expanding pool selection: pick randomly from each pool
+    pool_sizes = [8, 16, 32, 64]
+    for pool_size in pool_sizes:
+        if len(result) >= 4:
+            break
+        # Get top N headlines with unpicked stories
+        pool = [
+            h for h in sorted_headlines[:pool_size]
+            if h['StoryId'] not in picked_story_ids
+        ]
+        if pool:
+            pick = random.choice(pool)
+            result.append(pick)
+            picked_story_ids.add(pick['StoryId'])
+
+    # Fill remaining slots from unpicked stories in rank order
+    for h in sorted_headlines:
+        if len(result) >= 4:
+            break
+        if h['StoryId'] not in picked_story_ids:
+            result.append(h)
+            picked_story_ids.add(h['StoryId'])
+
+    return result[:4]
 
 
-def get_random_word_of_type(word_type):
+def enrich_with_story_details(headlines):
+    """Get story details from Stories table and merge with headline data."""
+    if not headlines:
+        return []
 
-    logger.info(f"Getting words of type {word_type}")
-    
+    # Group headlines by YearMonthDay to batch queries
+    by_day = {}
+    for h in headlines:
+        day = h['YearMonthDay']
+        if day not in by_day:
+            by_day[day] = []
+        by_day[day].append(h)
+
+    # For each day, get stories and build lookup
+    story_lookup = {}
+    for day_key, day_headlines in by_day.items():
+        story_ids_needed = {h['StoryId'] for h in day_headlines}
+        stories = get_stories_for_day(day_key)
+        for story in stories:
+            if story.get('StoryId') in story_ids_needed:
+                story_lookup[(day_key, story['StoryId'])] = story
+
+    # Build response objects
+    result = []
+    for h in headlines:
+        story = story_lookup.get((h['YearMonthDay'], h['StoryId']), {})
+
+        # Get sibling headlines for this story
+        siblings = get_siblings_for_story(h['YearMonthDay'], h['StoryId'])
+
+        result.append({
+            'HeadlineId': h['HeadlineId'],
+            'Headline': h['Headline'],
+            'OriginalHeadline': h.get('OriginalHeadline', story.get('Title', '')),
+            'ShowOriginal': random.random() < 0.25,
+            'Angle': h.get('Angle', ''),
+            'AngleSetup': h.get('AngleSetup', ''),
+            'Rank': h.get('Rank'),
+            'YearMonthDay': h['YearMonthDay'],
+            'StoryId': h['StoryId'],
+            'Description': story.get('Description', ''),
+            'Url': story.get('Url', ''),
+            'ImageUrl': story.get('ImageUrl', ''),
+            'Source': story.get('Source', ''),
+            'PublishedAt': story.get('PublishedAt', ''),
+            'SiblingHeadlines': siblings,
+        })
+
+    return result
+
+
+def get_stories_for_day(day_key):
+    """Query all stories for a day."""
+    response = _stories_table.query(
+        KeyConditionExpression=Key('YearMonthDay').eq(day_key)
+    )
+    return response.get('Items', [])
+
+
+def get_siblings_for_story(day_key, story_id):
+    """Get all headline options for a story (for sibling links)."""
+    response = _headlines_table.query(
+        KeyConditionExpression=Key('YearMonthDay').eq(day_key),
+        FilterExpression='StoryId = :sid',
+        ExpressionAttributeValues={':sid': story_id}
+    )
+    siblings = response.get('Items', [])
+
+    return [{
+        'HeadlineId': s['HeadlineId'],
+        'Headline': s['Headline'],
+        'Angle': s.get('Angle', ''),
+        'Rank': s.get('Rank'),
+    } for s in siblings]
+
+
+def get_random_word(word_type):
+    """Get a random word of the specified type."""
     words = _words_table.query(
         KeyConditionExpression=Key('WordType').eq(word_type),
     )['Items']
-    
-    logger.info(f"Got {len(words)} words of type {word_type}")
     return random.choice(words)['Word']
-
-
-def order_stories(stories, top_headline_id):
-    
-    random.shuffle(stories)
-    stories = bring_element_to_front(stories, 
-                                     lambda story: story['HeadlineId'] == top_headline_id)
-    
-    return stories
-
-
-def bring_element_to_front(list, predicate):
-    for i, item in enumerate(list):
-        if predicate(item):
-            list.insert(0, list.pop(i))
-            break
-
-    return list
