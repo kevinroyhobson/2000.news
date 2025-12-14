@@ -15,6 +15,7 @@ _dynamo_resource = boto3.resource('dynamodb')
 _headlines_table = _dynamo_resource.Table('SubvertedHeadlines')
 _stories_table = _dynamo_resource.Table('Stories')
 _words_table = _dynamo_resource.Table('Words')
+_words_cache = {}
 
 
 def get(event, context):
@@ -42,7 +43,7 @@ def get(event, context):
     selected = select_headlines(headlines, requested_headline_id)
 
     # Get story details for selected headlines
-    stories = enrich_with_story_details(selected)
+    stories = enrich_with_story_details(selected, headlines)
 
     paper_name = f"The {get_random_word('adjective').capitalize()} {get_random_word('newspaper-name').capitalize()}"
 
@@ -140,14 +141,14 @@ def select_headlines(headlines, requested_headline_id):
     return result[:4]
 
 
-def enrich_with_story_details(headlines):
+def enrich_with_story_details(selected_headlines, all_headlines):
     """Get story details from Stories table and merge with headline data."""
-    if not headlines:
+    if not selected_headlines:
         return []
 
-    # Group headlines by YearMonthDay to batch queries
+    # Group selected headlines by YearMonthDay to batch queries
     by_day = {}
-    for h in headlines:
+    for h in selected_headlines:
         day = h['YearMonthDay']
         if day not in by_day:
             by_day[day] = []
@@ -164,11 +165,12 @@ def enrich_with_story_details(headlines):
 
     # Build response objects
     result = []
-    for h in headlines:
+    for h in selected_headlines:
         story = story_lookup.get((h['YearMonthDay'], h['StoryId']), {})
 
-        # Get sibling headlines for this story
-        siblings = get_siblings_for_story(h['YearMonthDay'], h['StoryId'])
+        # Get sibling headlines
+        siblings = [s for s in all_headlines if s['YearMonthDay'] == h['YearMonthDay'] and s['StoryId'] == h['StoryId']]
+        siblings = to_sibling_view_models(siblings)
 
         result.append({
             'HeadlineId': h['HeadlineId'],
@@ -199,26 +201,21 @@ def get_stories_for_day(day_key):
     return response.get('Items', [])
 
 
-def get_siblings_for_story(day_key, story_id):
-    """Get all headline options for a story (for sibling links)."""
-    response = _headlines_table.query(
-        KeyConditionExpression=Key('YearMonthDay').eq(day_key),
-        FilterExpression='StoryId = :sid',
-        ExpressionAttributeValues={':sid': story_id}
-    )
-    siblings = response.get('Items', [])
-
+def to_sibling_view_models(headlines):
+    """Transform headline objects into sibling view models."""
     return [{
         'HeadlineId': s['HeadlineId'],
         'Headline': s['Headline'],
         'Angle': s.get('Angle', ''),
         'Rank': s.get('Rank'),
-    } for s in siblings]
+    } for s in headlines]
 
 
 def get_random_word(word_type):
-    """Get a random word of the specified type."""
-    words = _words_table.query(
-        KeyConditionExpression=Key('WordType').eq(word_type),
-    )['Items']
-    return random.choice(words)['Word']
+    """Get a random word of the specified type, with caching across warm invocations."""
+    if word_type not in _words_cache:
+        response = _words_table.query(
+            KeyConditionExpression=Key('WordType').eq(word_type),
+        )
+        _words_cache[word_type] = [item['Word'] for item in response['Items']]
+    return random.choice(_words_cache[word_type])
