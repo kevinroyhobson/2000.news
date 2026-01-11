@@ -40,7 +40,8 @@ def get(event, context):
 
     # Select 4 headlines using expanding pool algorithm
     requested_headline_id = params.get('headline_slug', '')
-    selected = select_headlines(headlines, requested_headline_id)
+    search_query = params.get('q', '')
+    selected = select_headlines(headlines, requested_headline_id, search_query)
 
     # Get story details for selected headlines
     stories = enrich_with_story_details(selected, headlines, requested_headline_id)
@@ -62,9 +63,12 @@ def get(event, context):
 
 
 def parse_path_params(event):
+    params = {}
     if 'pathParameters' in event and event['pathParameters'] is not None:
-        return {k: v for (k, v) in event['pathParameters'].items()}
-    return {}
+        params.update({k: v for (k, v) in event['pathParameters'].items()})
+    if 'queryStringParameters' in event and event['queryStringParameters'] is not None:
+        params.update({k: v for (k, v) in event['queryStringParameters'].items()})
+    return params
 
 
 def get_day_key(date=None):
@@ -85,10 +89,13 @@ def get_headlines_for_day(day_key):
     return headlines
 
 
-def select_headlines(headlines, requested_headline_id):
+def select_headlines(headlines, requested_headline_id, search_query=''):
     """
     Select 4 headlines using expanding pool algorithm.
     Ensures unique StoryIds and favors higher-ranked headlines.
+
+    If search_query is provided, headlines matching the query (in Headline or OriginalHeadline)
+    are floated to the top in random order.
 
     Pool sizes: 8, 16, 32, 64 - pick one randomly from each pool, ensuring unique stories.
     """
@@ -114,6 +121,25 @@ def select_headlines(headlines, requested_headline_id):
                 result.append(h)
                 picked_story_ids.add(h['StoryId'])
                 break
+
+    # If search query provided, prioritize matching headlines (in random order)
+    if search_query:
+        query_lower = search_query.lower()
+        matching = [
+            h for h in sorted_headlines
+            if h['StoryId'] not in picked_story_ids and (
+                query_lower in h.get('Headline', '').lower() or
+                query_lower in h.get('OriginalHeadline', '').lower()
+            )
+        ]
+        # Shuffle matching headlines and pick unique stories
+        random.shuffle(matching)
+        for h in matching:
+            if len(result) >= 4:
+                break
+            if h['StoryId'] not in picked_story_ids:
+                result.append(h)
+                picked_story_ids.add(h['StoryId'])
 
     # Expanding pool selection: pick randomly from each pool
     pool_sizes = [8, 16, 32, 64]

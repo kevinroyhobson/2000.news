@@ -33,7 +33,18 @@ export default function Newspaper() {
   }
 
   function loadFromPath(path) {
-    const request = axios.get(`https://api.2000.news${path}${isDebugMode ? '?debug=true' : ''}`);
+    const params = new URLSearchParams();
+    if (isDebugMode) {
+      params.set('debug', 'true');
+    }
+    const searchQuery = new URLSearchParams(window.location.search).get('q');
+    if (searchQuery) {
+      params.set('q', searchQuery);
+    }
+    const queryString = params.toString();
+    const url = `https://api.2000.news${path}${queryString ? '?' + queryString : ''}`;
+
+    const request = axios.get(url);
     request.then(function (response) {
       setPaperName(response.data.PaperName);
       setStories(response.data.Stories);
