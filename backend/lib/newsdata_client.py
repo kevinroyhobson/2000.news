@@ -1,33 +1,14 @@
 """Client for the newsdata.io API."""
 
-import os
-import boto3
 import requests
+from .ssm_secrets import get_secret
 
 
 class NewsdataClient:
     ENDPOINT = "https://newsdata.io/api/1/news"
 
     def __init__(self, api_key=None):
-        self._api_key = api_key or self._get_api_key()
-
-    def _get_api_key(self):
-        """Get API key from environment or AWS SSM."""
-        if 'NEWS_DATA_API_KEY' in os.environ:
-            return os.environ['NEWS_DATA_API_KEY']
-
-        try:
-            ssm = boto3.client('ssm')
-            response = ssm.get_parameter(Name='/2000news/NEWS_DATA_API_KEY', WithDecryption=True)
-            return response['Parameter']['Value']
-        except Exception:
-            pass
-
-        raise ValueError(
-            "NEWS_DATA_API_KEY not found. Set it via:\n"
-            "  export NEWS_DATA_API_KEY=your_key\n"
-            "Or store in AWS SSM at /2000news/NEWS_DATA_API_KEY"
-        )
+        self._api_key = api_key or get_secret("NEWS_DATA_API_KEY")
 
     def fetch_by_category(self, category=None, use_priority=True, page_token=None):
         """

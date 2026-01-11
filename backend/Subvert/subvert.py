@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 import anthropic
 from dotenv import load_dotenv
+from lib.ssm_secrets import get_secret
 
 _dynamo_resource = boto3.resource("dynamodb")
 _headlines_table = _dynamo_resource.Table("SubvertedHeadlines")
@@ -50,14 +51,14 @@ def get_stage_config(stage: str) -> dict:
 def get_anthropic_client():
     global _anthropic_client
     if _anthropic_client is None:
-        _anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _anthropic_client = anthropic.Anthropic(api_key=get_secret("ANTHROPIC_API_KEY"))
     return _anthropic_client
 
 
 def get_google_client():
     global _google_client
     if _google_client is None:
-        _google_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        _google_client = genai.Client(api_key=get_secret("GEMINI_API_KEY"))
     return _google_client
 
 

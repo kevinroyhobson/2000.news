@@ -10,8 +10,8 @@ Usage:
 """
 
 import click
-from newsdata_client import NewsdataClient
-from stories_repository import StoriesRepository
+from lib.newsdata_client import NewsdataClient
+from lib.stories_repository import StoriesRepository
 
 
 MAX_API_CALLS = 3

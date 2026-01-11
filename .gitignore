@@ -5,3 +5,4 @@ backend/*/obj/*
 backend/venv/*
 frontend/build/*
 frontend/node_modules/*
+.previous-deploy

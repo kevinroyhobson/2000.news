@@ -76,9 +76,6 @@ Resources:
       Handler: Fetch/fetch.fetch
       Runtime: python3.13
       MemorySize: 1024
-      Environment:
-        Variables:
-          NEWS_DATA_API_KEY: xxx
       Events:
         # 4x/day: 5am, 11am, 3pm, 8pm PT (UTC: 13, 19, 23, 04)
         FetchMorning:
@@ -105,6 +102,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref Stories
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
 
   Subvert:
     Type: AWS::Serverless::Function
@@ -115,8 +114,6 @@ Resources:
       Timeout: 120
       Environment:
         Variables:
-          ANTHROPIC_API_KEY: xxx
-          GEMINI_API_KEY: xxx
           BRAINSTORM_PROVIDER: anthropic
           BRAINSTORM_MODEL: claude-haiku-4-5
           GENERATE_PROVIDER: anthropic
@@ -140,6 +137,8 @@ Resources:
             TableName: !Ref SubvertedHeadlines
         - DynamoDBCrudPolicy:
             TableName: !Ref Words
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
 
   Tournament:
     Type: AWS::Serverless::Function
@@ -150,8 +149,6 @@ Resources:
       Timeout: 300
       Environment:
         Variables:
-          ANTHROPIC_API_KEY: xxx
-          GEMINI_API_KEY: xxx
           TOURNAMENT_PROVIDER: google
           TOURNAMENT_MODEL: gemini-2.5-flash-lite
       Events:
@@ -163,6 +160,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SubvertedHeadlines
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
 
   Get:
     Type: AWS::Serverless::Function

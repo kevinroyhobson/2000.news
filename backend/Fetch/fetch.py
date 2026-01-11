@@ -6,8 +6,8 @@ Fetches from 5 categories + 1 wildcard, saving up to 5 stories each.
 Budget: ~6 fetches × 3 pages max = 18 API credits per run, 72/day (well within 200 free tier limit).
 """
 
-from newsdata_client import NewsdataClient
-from stories_repository import StoriesRepository
+from lib.newsdata_client import NewsdataClient
+from lib.stories_repository import StoriesRepository
 
 
 CATEGORIES = ["business", "entertainment", "sports", "technology", "politics"]
