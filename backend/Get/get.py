@@ -43,7 +43,7 @@ def get(event, context):
     selected = select_headlines(headlines, requested_headline_id)
 
     # Get story details for selected headlines
-    stories = enrich_with_story_details(selected, headlines)
+    stories = enrich_with_story_details(selected, headlines, requested_headline_id)
 
     paper_name = f"The {get_random_word('adjective').capitalize()} {get_random_word('newspaper-name').capitalize()}"
 
@@ -141,7 +141,7 @@ def select_headlines(headlines, requested_headline_id):
     return result[:4]
 
 
-def enrich_with_story_details(selected_headlines, all_headlines):
+def enrich_with_story_details(selected_headlines, all_headlines, requested_headline_id=''):
     """Get story details from Stories table and merge with headline data."""
     if not selected_headlines:
         return []
@@ -172,11 +172,14 @@ def enrich_with_story_details(selected_headlines, all_headlines):
         siblings = [s for s in all_headlines if s['YearMonthDay'] == h['YearMonthDay'] and s['StoryId'] == h['StoryId']]
         siblings = to_sibling_view_models(siblings)
 
+        # Don't show original if this headline was specifically requested via URL
+        show_original = False if h['HeadlineId'] == requested_headline_id else random.random() < 0.25
+
         result.append({
             'HeadlineId': h['HeadlineId'],
             'Headline': h['Headline'],
             'OriginalHeadline': h.get('OriginalHeadline', story.get('Title', '')),
-            'ShowOriginal': random.random() < 0.25,
+            'ShowOriginal': show_original,
             'Angle': h.get('Angle', ''),
             'AngleSetup': h.get('AngleSetup', ''),
             'Rank': h.get('Rank'),
