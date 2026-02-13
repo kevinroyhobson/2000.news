@@ -155,6 +155,8 @@ div.line.paragraph-start {
     border: 1px solid black;
     padding: 10px;
 
+    max-height: calc(100vh - 70px);
+    overflow-y: auto;
     cursor: zoom-out;
 }
 
