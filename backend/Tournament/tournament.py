@@ -1,8 +1,9 @@
 """
 Tournament Lambda - Cross-story headline ranking
 
-Runs hourly to rank all headlines from today's stories via pairwise tournament.
-Results are written to DailyHeadlineRankings table.
+Triggered by DynamoDB stream on SubvertedHeadlines (batched ~5 min after new headlines).
+Ranks all today's headlines via pairwise tournament.
+Uses bulk model (Gemini Flash) for early rounds, finals model (Opus) for last 64.
 
 Ranking system:
 - Rank 1: Tournament winner
@@ -13,6 +14,7 @@ Ranking system:
 """
 
 import os
+import time
 import datetime
 import random
 from zoneinfo import ZoneInfo
@@ -22,11 +24,16 @@ from boto3.dynamodb.conditions import Key
 from google import genai
 from google.genai import types
 import anthropic
+from langfuse import get_client, observe
 from lib.ssm_secrets import get_secret
 
 
 _dynamo_resource = boto3.resource('dynamodb')
 _headlines_table = _dynamo_resource.Table('SubvertedHeadlines')
+os.environ.setdefault("LANGFUSE_PUBLIC_KEY", get_secret("LANGFUSE_PUBLIC_KEY"))
+os.environ.setdefault("LANGFUSE_SECRET_KEY", get_secret("LANGFUSE_SECRET_KEY"))
+os.environ.setdefault("LANGFUSE_HOST", "https://us.cloud.langfuse.com")
+langfuse = get_client()
 
 _anthropic_client = None
 _google_client = None
@@ -46,32 +53,37 @@ def get_google_client():
     return _google_client
 
 
+@observe()
 def tournament(event, context):
     """
-    Main handler - runs hourly tournament across all today's headlines.
+    Main handler - triggered by DynamoDB stream on SubvertedHeadlines.
+    Runs cross-story tournament to rank all today's headlines.
     """
-    today = datetime.datetime.now(ZoneInfo('America/New_York')).strftime('%Y%m%d')
-    print(f"Running tournament for {today}")
+    try:
+        today = datetime.datetime.now(ZoneInfo('America/New_York')).strftime('%Y%m%d')
+        print(f"Running tournament for {today}")
 
-    # 1. Query all headlines for today from SubvertedHeadlines
-    all_headlines = get_headlines_for_day(today)
-    print(f"Found {len(all_headlines)} headlines for {today}")
+        # 1. Query all headlines for today from SubvertedHeadlines
+        all_headlines = get_headlines_for_day(today)
+        print(f"Found {len(all_headlines)} headlines for {today}")
 
-    if len(all_headlines) < 2:
-        print("Not enough headlines for tournament")
-        if len(all_headlines) == 1:
-            update_headline_rank(today, all_headlines[0]['headline_id'], 1)
-        return f"Only {len(all_headlines)} headlines for {today}"
+        if len(all_headlines) < 2:
+            print("Not enough headlines for tournament")
+            if len(all_headlines) == 1:
+                update_headline_rank(today, all_headlines[0]['headline_id'], 1)
+            return f"Only {len(all_headlines)} headlines for {today}"
 
-    # 2. Run elimination tournament - everyone gets a rank
-    headlines_by_rank = run_tournament(all_headlines)
-    print(f"Tournament complete, ranks assigned: {headlines_by_rank}")
+        # 2. Run elimination tournament - everyone gets a rank
+        headlines_by_rank = run_tournament(all_headlines)
+        print(f"Tournament complete, ranks assigned: {headlines_by_rank}")
 
-    # 3. Update Rank field on each headline in SubvertedHeadlines
-    update_all_ranks(today, headlines_by_rank)
+        # 3. Update Rank field on each headline in SubvertedHeadlines
+        update_all_ranks(today, headlines_by_rank)
 
-    rank_summary = {k: len(v) for k, v in headlines_by_rank.items()}
-    return f"Tournament complete for {today}: {len(all_headlines)} headlines ranked. Distribution: {rank_summary}"
+        rank_summary = {k: len(v) for k, v in headlines_by_rank.items()}
+        return f"Tournament complete for {today}: {len(all_headlines)} headlines ranked. Distribution: {rank_summary}"
+    finally:
+        langfuse.flush()
 
 
 def get_headlines_for_day(day_key: str) -> list:
@@ -96,6 +108,7 @@ def get_headlines_for_day(day_key: str) -> list:
 def run_tournament(candidates: list) -> dict:
     """
     Run full elimination tournament. Every headline gets a rank.
+    Uses finals model (Opus) when remaining candidates <= cutoff.
 
     Returns dict: {rank: [headline_ids]}
     - Rank 1: Winner
@@ -103,6 +116,8 @@ def run_tournament(candidates: list) -> dict:
     - Rank 3: Lost in semifinal
     - etc.
     """
+    finals_cutoff = int(os.getenv("TOURNAMENT_FINALS_CUTOFF", "64"))
+
     # Shuffle to avoid position bias
     random.shuffle(candidates)
     current_round = candidates.copy()
@@ -113,7 +128,9 @@ def run_tournament(candidates: list) -> dict:
 
     round_num = 1
     while len(current_round) > 1:
-        print(f"--- Tournament Round {round_num} ({len(current_round)} competitors) ---")
+        use_finals = len(current_round) <= finals_cutoff
+        model_label = "finals" if use_finals else "bulk"
+        print(f"--- Tournament Round {round_num} ({len(current_round)} competitors, {model_label}) ---")
         next_round = []
         round_losers = []
 
@@ -123,8 +140,12 @@ def run_tournament(candidates: list) -> dict:
             pairs.append((current_round[i], current_round[i + 1]))
 
         # Process pairs in parallel
-        with ThreadPoolExecutor(max_workers=min(20, len(pairs))) as executor:
-            future_to_pair = {executor.submit(compare_pair, a, b): (a, b) for a, b in pairs}
+        with ThreadPoolExecutor(max_workers=min(50, len(pairs))) as executor:
+            future_to_pair = {
+                executor.submit(compare_pair, a, b, use_finals=use_finals,
+                                round_num=round_num, remaining=len(current_round)): (a, b)
+                for a, b in pairs
+            }
             for future in as_completed(future_to_pair):
                 a, b = future_to_pair[future]
                 winner = future.result()
@@ -167,7 +188,8 @@ def run_tournament(candidates: list) -> dict:
     return headlines_by_rank
 
 
-def compare_pair(a: dict, b: dict) -> dict:
+def compare_pair(a: dict, b: dict, use_finals=False,
+                  round_num=0, remaining=0) -> dict:
     """
     Ask the model which headline is funnier, with full context about
     the original story and comedic angle.
@@ -195,7 +217,10 @@ A straightforward joke that lands is good, but a headline with clever linguistic
 
 Reply with ONLY the letter A or B, nothing else."""
 
-    response_text = call_tournament_model(prompt).strip().upper()
+    response_text = call_tournament_model(
+        prompt, use_finals=use_finals,
+        round_num=round_num, remaining=remaining,
+    ).strip().upper()
 
     # Parse response - look for A or B
     if "A" in response_text and "B" not in response_text:
@@ -212,34 +237,93 @@ Reply with ONLY the letter A or B, nothing else."""
         return random.choice([a, b])
 
 
-def call_tournament_model(prompt: str) -> str:
-    """Call the configured tournament model."""
+MAX_RETRIES = 4
+RETRY_BASE_DELAY = 2  # seconds
+
+
+def call_tournament_model(prompt: str, use_finals=False,
+                          round_num=0, remaining=0) -> str:
+    """Call the configured tournament model, switching to finals model when appropriate.
+    Retries with exponential backoff on rate limit or transient errors.
+    Only finals rounds are traced in Langfuse to stay within free tier."""
+    if use_finals:
+        return _call_tournament_model_traced(
+            prompt, round_num=round_num, remaining=remaining,
+        )
+
+    return _call_tournament_model_untraceable(
+        prompt, round_num=round_num, remaining=remaining,
+    )
+
+
+@observe(as_type="generation")
+def _call_tournament_model_traced(prompt: str, round_num=0, remaining=0) -> str:
+    """Finals model call — traced in Langfuse."""
+    provider = os.getenv("TOURNAMENT_FINALS_PROVIDER", "anthropic")
+    model = os.getenv("TOURNAMENT_FINALS_MODEL", "claude-opus-4-6")
+    text, usage = _do_api_call(provider, model, round_num, remaining, prompt=prompt)
+    langfuse.update_current_generation(
+        model=model,
+        usage_details=usage,
+        metadata={"round_num": round_num, "remaining_count": remaining},
+    )
+    return text
+
+
+def _call_tournament_model_untraceable(prompt: str, round_num=0, remaining=0) -> str:
+    """Bulk model call — not traced in Langfuse."""
     provider = os.getenv("TOURNAMENT_PROVIDER", "google")
-    model = os.getenv("TOURNAMENT_MODEL", "gemini-2.5-flash-lite")
+    model = os.getenv("TOURNAMENT_MODEL", "gemini-2.5-flash")
+    text, _ = _do_api_call(provider, model, round_num, remaining, prompt=prompt)
+    return text
 
-    print(f"[tournament] Calling {provider}/{model}")
 
-    if provider == "anthropic":
-        client = get_anthropic_client()
-        response = client.messages.create(
-            model=model,
-            max_tokens=10,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text
-    elif provider == "google":
-        client = get_google_client()
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=["TEXT"],
-                temperature=0.5,  # Lower temp for more consistent judging
-            ),
-        )
-        return response.candidates[0].content.parts[0].text.strip()
-    else:
-        raise ValueError(f"Unknown provider: {provider}")
+def _do_api_call(provider, model, round_num, remaining, prompt) -> tuple:
+    """Make the actual API call with retries. Returns (text, usage_dict)."""
+    print(f"[tournament] Calling {provider}/{model} (round={round_num}, remaining={remaining})")
+
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            if provider == "anthropic":
+                client = get_anthropic_client()
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=10,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                text = response.content[0].text
+                usage = {
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                }
+            elif provider == "google":
+                client = get_google_client()
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_modalities=["TEXT"],
+                        temperature=0.5,
+                    ),
+                )
+                text = response.candidates[0].content.parts[0].text.strip()
+                usage = {}
+                if response.usage_metadata:
+                    usage = {
+                        "input_tokens": response.usage_metadata.prompt_token_count,
+                        "output_tokens": response.usage_metadata.candidates_token_count,
+                    }
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
+
+            return text, usage
+
+        except Exception as e:
+            if attempt == MAX_RETRIES:
+                raise
+            delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1)
+            print(f"[tournament] Retry {attempt + 1}/{MAX_RETRIES} after {delay:.1f}s: {e}")
+            time.sleep(delay)
 
 
 def update_all_ranks(day_key: str, headlines_by_rank: dict):
@@ -270,3 +354,4 @@ if __name__ == "__main__":
 
     result = tournament({}, {})
     print(result)
+    langfuse.flush()

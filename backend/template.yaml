@@ -68,6 +68,8 @@ Resources:
           KeyType: HASH
         - AttributeName: HeadlineId
           KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
       BillingMode: PAY_PER_REQUEST
 
   Fetch:
@@ -115,12 +117,9 @@ Resources:
       Environment:
         Variables:
           BRAINSTORM_PROVIDER: anthropic
-          BRAINSTORM_MODEL: claude-haiku-4-5
+          BRAINSTORM_MODEL: claude-opus-4-6
           GENERATE_PROVIDER: anthropic
           GENERATE_MODEL: claude-haiku-4-5
-          TOURNAMENT_PROVIDER: google
-          TOURNAMENT_MODEL: gemini-2.5-flash-lite
-
       Events:
        DDBEvent:
          Type: DynamoDB
@@ -129,7 +128,7 @@ Resources:
            StartingPosition: TRIM_HORIZON
            BatchSize: 3
            Enabled: True
-          
+
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref Stories
@@ -146,17 +145,25 @@ Resources:
       Handler: Tournament/tournament.tournament
       Runtime: python3.13
       MemorySize: 1024
-      Timeout: 300
+      Timeout: 900
       Environment:
         Variables:
           TOURNAMENT_PROVIDER: google
-          TOURNAMENT_MODEL: gemini-2.5-flash-lite
+          TOURNAMENT_MODEL: gemini-2.5-flash
+          TOURNAMENT_FINALS_PROVIDER: anthropic
+          TOURNAMENT_FINALS_MODEL: claude-opus-4-6
+          TOURNAMENT_FINALS_CUTOFF: 64
       Events:
-        HourlyTournament:
-          Type: Schedule
+        HeadlineStream:
+          Type: DynamoDB
           Properties:
-            Schedule: rate(60 minutes)
-            Enabled: True
+            Stream: !GetAtt SubvertedHeadlines.StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 1000
+            MaximumBatchingWindowInSeconds: 300
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName": ["INSERT"]}'
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SubvertedHeadlines

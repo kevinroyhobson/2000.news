@@ -5,5 +5,6 @@ openai==0.27.0
 dynamodb-json==1.3
 google-genai==1.12.1
 anthropic>=0.40.0
+langfuse
 python-dotenv==1.0.1
 aws-sam-cli==1.137.1

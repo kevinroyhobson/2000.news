@@ -11,11 +11,16 @@ from google import genai
 from google.genai import types
 import anthropic
 from dotenv import load_dotenv
+from langfuse import get_client, observe
 from lib.ssm_secrets import get_secret
 
 _dynamo_resource = boto3.resource("dynamodb")
 _headlines_table = _dynamo_resource.Table("SubvertedHeadlines")
 load_dotenv()
+os.environ.setdefault("LANGFUSE_PUBLIC_KEY", get_secret("LANGFUSE_PUBLIC_KEY"))
+os.environ.setdefault("LANGFUSE_SECRET_KEY", get_secret("LANGFUSE_SECRET_KEY"))
+os.environ.setdefault("LANGFUSE_HOST", "https://us.cloud.langfuse.com")
+langfuse = get_client()
 
 # =============================================================================
 # MODEL CONFIGURATION
@@ -28,11 +33,9 @@ load_dotenv()
 #
 # Example .env:
 #   BRAINSTORM_PROVIDER=anthropic
-#   BRAINSTORM_MODEL=claude-haiku-4-5
+#   BRAINSTORM_MODEL=claude-opus-4-6
 #   GENERATE_PROVIDER=anthropic
 #   GENERATE_MODEL=claude-haiku-4-5
-#   TOURNAMENT_PROVIDER=google
-#   TOURNAMENT_MODEL=gemini-2.5-flash-lite
 # =============================================================================
 
 _anthropic_client = None
@@ -64,76 +67,76 @@ def get_google_client():
 
 def subvert(event, context):
     """Process DynamoDB stream records in parallel."""
-    records_to_process = []
+    try:
+        records_to_process = []
 
-    for record in event["Records"]:
-        if record["eventName"] != "INSERT" and record["eventName"] != "MODIFY":
-            print(
-                f"Skipped record {record['eventID']} because it's not an INSERT or MODIFY event."
-            )
-            continue
+        for record in event["Records"]:
+            if record["eventName"] != "INSERT" and record["eventName"] != "MODIFY":
+                print(
+                    f"Skipped record {record['eventID']} because it's not an INSERT or MODIFY event."
+                )
+                continue
 
-        story = dynamodb_json.loads(record["dynamodb"]["NewImage"])
-        story_id = story.get("StoryId", "")
+            story = dynamodb_json.loads(record["dynamodb"]["NewImage"])
+            story_id = story.get("StoryId", "")
 
-        # Check if headlines already exist for this story in SubvertedHeadlines
-        if story_id and do_headlines_exist_for_story(story["YearMonthDay"], story_id):
-            print(f"Skipped {story['Title']} because headlines already exist.")
-            continue
+            # Check if headlines already exist for this story in SubvertedHeadlines
+            if story_id and do_headlines_exist_for_story(story["YearMonthDay"], story_id):
+                print(f"Skipped {story['Title']} because headlines already exist.")
+                continue
 
-        records_to_process.append(story)
+            records_to_process.append(story)
 
-    if not records_to_process:
-        print("No records to process.")
-        return
+        if not records_to_process:
+            print("No records to process.")
+            return
 
-    print(f"Processing {len(records_to_process)} stories in parallel...")
+        print(f"Processing {len(records_to_process)} stories in parallel...")
 
-    with ThreadPoolExecutor(max_workers=len(records_to_process)) as executor:
-        futures = {
-            executor.submit(process_story, story): story
-            for story in records_to_process
-        }
-        for future in as_completed(futures):
-            story = futures[future]
-            try:
-                future.result()
-                print(f"Completed: {story['Title']}")
-            except Exception as e:
-                print(f"Failed to process '{story['Title']}': {e}")
+        with ThreadPoolExecutor(max_workers=len(records_to_process)) as executor:
+            futures = {
+                executor.submit(process_story, story): story
+                for story in records_to_process
+            }
+            for future in as_completed(futures):
+                story = futures[future]
+                try:
+                    future.result()
+                    print(f"Completed: {story['Title']}")
+                except Exception as e:
+                    print(f"Failed to process '{story['Title']}': {e}")
+    finally:
+        langfuse.flush()
 
 
+@observe()
 def process_story(story):
     """Process a single story - compute subverted titles and save to SubvertedHeadlines."""
     print(f"Starting: {story['Title']}")
-    headlines = compute_subverted_titles(
-        story["Title"], story.get("Description", "")
-    )
+    headlines = compute_subverted_titles(story["Title"], story.get("Description", ""))
     save_headlines(story, headlines)
+    return {"headline_count": len(headlines)}
 
 
 def compute_subverted_titles(title: str, subtitle: str):
     """
-    Three-stage pipeline:
+    Two-stage pipeline:
     1. Brainstorm: Analyze the headline and generate comedic angles + context
     2. Generate: Create polished headlines for each angle
-    3. Tournament: Pairwise comparisons to select the best headlines
+    All candidates are returned for the cross-story tournament to rank.
     """
     print(f"=== STAGE 1: BRAINSTORM ===")
     angles = stage_1_brainstorm(title, subtitle)
     print(f"Generated {len(angles)} angles: {[a['angle_name'] for a in angles]}")
 
     print(f"=== STAGE 2: GENERATE ===")
-    candidates = stage_2_generate(title, subtitle, angles)
-    print(f"Generated {len(candidates)} candidate headlines")
+    headlines = stage_2_generate(title, subtitle, angles)
+    print(f"Generated {len(headlines)} headlines")
 
-    print(f"=== STAGE 3: TOURNAMENT ===")
-    winners = stage_3_tournament(candidates, num_winners=15)
-    print(f"Selected {len(winners)} winners")
-
-    return winners
+    return [format_headline(h) for h in headlines]
 
 
+@observe()
 def stage_1_brainstorm(title: str, subtitle: str) -> list:
     """
     Analyze the headline and brainstorm comedic angles.
@@ -149,7 +152,7 @@ CONTEXT: "{subtitle}"
 Your task:
 1. Identify the key nouns/verbs that could be punned or rhymed
 2. Think of pop culture references, memes, wordplay or alliteration/assonance opportunities
-3. Generate 6-7 distinct comedic angles to explore
+3. Generate 5 distinct comedic angles to explore
 
 Consider these random words/concepts for inspiration (use if they fit naturally): {', '.join(random_words)}
 
@@ -172,14 +175,15 @@ Return as JSON array:
             {"angle_name": "absurd", "setup": "Go weird", "keywords": []},
         ]
 
-    return angles[:7]  # Cap at 7 angles
+    return angles[:5]  # Cap at 5 angles
 
 
+@observe()
 def stage_2_generate(title: str, subtitle: str, angles: list) -> list:
     """
     Generate polished headlines for each comedic angle.
     """
-    all_candidates = []
+    all_headlines = []
 
     for angle in angles:
         prompt = f"""Write 3-4 funny headlines based on this angle.
@@ -202,102 +206,36 @@ Return as JSON array:
 [{{"headline": "...", "angle_used": "{angle['angle_name']}"}}]"""
 
         response_text = call_model("generate", prompt)
-        headlines = parse_json_response(response_text)
+        parsed = parse_json_response(response_text)
 
-        for h in headlines:
+        for h in parsed:
             if isinstance(h, dict) and "headline" in h:
-                all_candidates.append({
+                all_headlines.append({
                     "headline": h["headline"],
                     "angle": angle["angle_name"],
                     "setup": angle["setup"],
                 })
 
     print(f"All generated headlines:")
-    for i, c in enumerate(all_candidates, 1):
-        print(f"  {i}. [{c['angle']}] {c['headline']}")
+    for i, h in enumerate(all_headlines, 1):
+        print(f"  {i}. [{h['angle']}] {h['headline']}")
 
-    return all_candidates
-
-
-def stage_3_tournament(candidates: list, num_winners: int = 15) -> list:
-    """
-    Run pairwise comparisons to select the funniest headlines.
-    Eliminates one loser at a time until we have num_winners remaining.
-    """
-    if len(candidates) <= num_winners:
-        return [format_winner(c) for c in candidates]
-
-    # Shuffle to avoid position bias
-    remaining = candidates.copy()
-    random.shuffle(remaining)
-
-    match_num = 1
-    while len(remaining) > num_winners:
-        # Pick two random candidates to compare
-        a, b = random.sample(remaining, 2)
-        winner = compare_pair(a, b)
-        loser = b if winner == a else a
-
-        print(f"Match {match_num}: ({len(remaining)} remaining)")
-        print(f"  WINNER: {winner['headline']}")
-        print(f"  loser:  {loser['headline']}")
-        print()
-
-        # Remove only the loser
-        remaining.remove(loser)
-        match_num += 1
-
-    return [format_winner(c) for c in remaining]
+    return all_headlines
 
 
-def compare_pair(a: dict, b: dict) -> dict:
-    """
-    Ask the model which headline is funnier. Returns the winner.
-    """
-    prompt = f"""Which headline is better for a satirical newspaper?
-
-Value CRAFT as much as humor:
-- Clever alliteration or assonance
-- Puns that actually work phonetically
-- Unexpected wordplay or double meanings
-- Rhythm and flow when read aloud
-
-A straightforward joke that lands is good, but a headline with clever linguistic craft is equally valuable.
-
-A: "{a['headline']}"
-B: "{b['headline']}"
-
-Reply with ONLY the letter A or B, nothing else."""
-
-    response_text = call_model("tournament", prompt).strip().upper()
-
-    # Parse response - look for A or B
-    if "A" in response_text and "B" not in response_text:
-        return a
-    elif "B" in response_text and "A" not in response_text:
-        return b
-    elif response_text.startswith("A"):
-        return a
-    elif response_text.startswith("B"):
-        return b
-    else:
-        # If unclear, pick randomly
-        print(f"Unclear tournament response: {response_text}, picking randomly")
-        return random.choice([a, b])
-
-
-def format_winner(candidate: dict) -> dict:
-    """Format a winning candidate for storage."""
+def format_headline(headline: dict) -> dict:
+    """Format a generated headline for storage."""
     return {
-        "SubvertedTitle": candidate["headline"],
-        "Angle": candidate.get("angle", "unknown"),
-        "AngleSetup": candidate.get("setup", ""),
+        "SubvertedTitle": headline["headline"],
+        "Angle": headline.get("angle", "unknown"),
+        "AngleSetup": headline.get("setup", ""),
         "SubvertedTitleId": "".join(
             random.choices(string.ascii_lowercase + string.digits, k=5)
         ),
     }
 
 
+@observe(as_type="generation")
 def call_model(stage: str, prompt: str) -> str:
     """
     Unified model calling interface. Routes to the configured provider/model for each stage.
@@ -309,15 +247,18 @@ def call_model(stage: str, prompt: str) -> str:
     print(f"[{stage}] Calling {provider}/{model}")
 
     if provider == "anthropic":
-        return call_anthropic(model, prompt)
+        response_text, usage = call_anthropic(model, prompt)
     elif provider == "google":
-        return call_google(model, prompt)
+        response_text, usage = call_google(model, prompt)
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
+    langfuse.update_current_generation(model=model, usage_details=usage)
+    return response_text
 
-def call_anthropic(model: str, prompt: str) -> str:
-    """Call Anthropic's API."""
+
+def call_anthropic(model: str, prompt: str) -> tuple:
+    """Call Anthropic's API. Returns (text, usage_dict)."""
     client = get_anthropic_client()
 
     response = client.messages.create(
@@ -326,11 +267,15 @@ def call_anthropic(model: str, prompt: str) -> str:
         messages=[{"role": "user", "content": prompt}],
     )
 
-    return response.content[0].text
+    usage = {
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+    }
+    return response.content[0].text, usage
 
 
-def call_google(model: str, prompt: str) -> str:
-    """Call Google's Gemini API."""
+def call_google(model: str, prompt: str) -> tuple:
+    """Call Google's Gemini API. Returns (text, usage_dict)."""
     client = get_google_client()
 
     response = client.models.generate_content(
@@ -342,7 +287,13 @@ def call_google(model: str, prompt: str) -> str:
         ),
     )
 
-    return response.candidates[0].content.parts[0].text.strip()
+    usage = {}
+    if response.usage_metadata:
+        usage = {
+            "input_tokens": response.usage_metadata.prompt_token_count,
+            "output_tokens": response.usage_metadata.candidates_token_count,
+        }
+    return response.candidates[0].content.parts[0].text.strip(), usage
 
 
 def parse_json_response(response_text: str) -> list:
@@ -416,7 +367,8 @@ if __name__ == "__main__":
     # Test locally
     results = compute_subverted_titles(
         "Scientists Discover New Species of Deep-Sea Fish",
-        "Researchers found the bioluminescent creature at record depths"
+        "Researchers found the bioluminescent creature at record depths",
     )
     for r in results:
         print(f"  - {r['SubvertedTitle']}")
+    langfuse.flush()
