@@ -148,11 +148,8 @@ Resources:
       Timeout: 900
       Environment:
         Variables:
-          TOURNAMENT_PROVIDER: google
-          TOURNAMENT_MODEL: gemini-2.5-flash
-          TOURNAMENT_FINALS_PROVIDER: anthropic
-          TOURNAMENT_FINALS_MODEL: claude-opus-4-6
-          TOURNAMENT_FINALS_CUTOFF: 64
+          TOURNAMENT_PROVIDER: anthropic
+          TOURNAMENT_MODEL: claude-opus-4-6
       Events:
         HeadlineStream:
           Type: DynamoDB

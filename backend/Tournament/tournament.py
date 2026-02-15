@@ -2,27 +2,27 @@
 Tournament Lambda - Cross-story headline ranking
 
 Triggered by DynamoDB stream on SubvertedHeadlines (batched ~5 min after new headlines).
-Ranks all today's headlines via pairwise tournament.
-Uses bulk model (Gemini Flash) for early rounds, finals model (Opus) for last 64.
+Ranks all today's headlines via batch ranking tournament.
+
+Uses batch ranking (groups of ~10, rank all, top 3 advance) with all-Opus for quality.
+Cuts API calls from ~420 to ~60 for 420 headlines while giving the model real competitive
+context for calibrated judging.
 
 Ranking system:
-- Rank 1: Tournament winner
-- Rank 2: Lost in final
-- Rank 3: Lost in semifinal (2 headlines)
-- Rank 4: Lost in quarterfinal (4 headlines)
-- And so on for all headlines
+- Final group (≤20 remain): explicit 1-through-N ordering
+- Earlier rounds: sub-ranked within tiers by intra-group finish position
+  (4th-place finishers rank above 5th, above 6th, etc.)
 """
 
 import os
 import time
 import datetime
 import random
+from itertools import groupby
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import boto3
 from boto3.dynamodb.conditions import Key
-from google import genai
-from google.genai import types
 import anthropic
 from langfuse import get_client, observe
 from lib.ssm_secrets import get_secret
@@ -36,7 +36,6 @@ os.environ.setdefault("LANGFUSE_HOST", "https://us.cloud.langfuse.com")
 langfuse = get_client()
 
 _anthropic_client = None
-_google_client = None
 
 
 def get_anthropic_client():
@@ -44,13 +43,6 @@ def get_anthropic_client():
     if _anthropic_client is None:
         _anthropic_client = anthropic.Anthropic(api_key=get_secret("ANTHROPIC_API_KEY"))
     return _anthropic_client
-
-
-def get_google_client():
-    global _google_client
-    if _google_client is None:
-        _google_client = genai.Client(api_key=get_secret("GEMINI_API_KEY"))
-    return _google_client
 
 
 @observe()
@@ -73,7 +65,7 @@ def tournament(event, context):
                 update_headline_rank(today, all_headlines[0]['headline_id'], 1)
             return f"Only {len(all_headlines)} headlines for {today}"
 
-        # 2. Run elimination tournament - everyone gets a rank
+        # 2. Run batch ranking tournament - everyone gets a rank
         headlines_by_rank = run_tournament(all_headlines)
         print(f"Tournament complete, ranks assigned: {headlines_by_rank}")
 
@@ -107,104 +99,120 @@ def get_headlines_for_day(day_key: str) -> list:
 
 def run_tournament(candidates: list) -> dict:
     """
-    Run full elimination tournament. Every headline gets a rank.
-    Uses finals model (Opus) when remaining candidates <= cutoff.
+    Run batch ranking tournament. Every headline gets a rank.
 
-    Returns dict: {rank: [headline_ids]}
-    - Rank 1: Winner
-    - Rank 2: Lost in final
-    - Rank 3: Lost in semifinal
-    - etc.
+    Elimination rounds (while remaining > 20):
+      Divide into groups of ~10, rank each group, top 3 advance.
+    Final round (≤20 remain):
+      Rank all in one call → explicit 1-through-N ordering.
+
+    Returns dict: {rank_str: [headline_ids]}
     """
-    finals_cutoff = int(os.getenv("TOURNAMENT_FINALS_CUTOFF", "64"))
-
-    # Shuffle to avoid position bias
     random.shuffle(candidates)
-    current_round = candidates.copy()
+    remaining = candidates.copy()
 
-    # Track eliminated headlines by round
-    # eliminated[round_num] = [headline_ids eliminated in that round]
-    eliminated = {}
+    # Each entry: list of (headline_id, intra_group_position)
+    # Stored in order so we can reverse (most recent round first) for rank assignment
+    elimination_rounds = []
 
     round_num = 1
-    while len(current_round) > 1:
-        use_finals = len(current_round) <= finals_cutoff
-        model_label = "finals" if use_finals else "bulk"
-        print(f"--- Tournament Round {round_num} ({len(current_round)} competitors, {model_label}) ---")
-        next_round = []
-        round_losers = []
+    while len(remaining) > 20:
+        num_groups = round(len(remaining) / 10)
+        groups = distribute_into_groups(remaining, num_groups)
 
-        # Build list of pairs for this round
-        pairs = []
-        for i in range(0, len(current_round) - 1, 2):
-            pairs.append((current_round[i], current_round[i + 1]))
+        print(f"--- Round {round_num} ({len(remaining)} headlines, {num_groups} groups of ~{len(remaining) // num_groups}) ---")
 
-        # Process pairs in parallel
-        with ThreadPoolExecutor(max_workers=min(50, len(pairs))) as executor:
-            future_to_pair = {
-                executor.submit(compare_pair, a, b, use_finals=use_finals,
-                                round_num=round_num, remaining=len(current_round)): (a, b)
-                for a, b in pairs
+        next_remaining = []
+        round_eliminated = []
+
+        with ThreadPoolExecutor(max_workers=min(50, num_groups)) as executor:
+            futures = {
+                executor.submit(rank_group, group, round_num, len(remaining)): i
+                for i, group in enumerate(groups)
             }
-            for future in as_completed(future_to_pair):
-                a, b = future_to_pair[future]
-                winner = future.result()
-                loser = b if winner['headline_id'] == a['headline_id'] else a
-                next_round.append(winner)
-                round_losers.append(loser['headline_id'])
-                print(f"  WIN: {winner['headline'][:50]}...")
-                print(f"  lose: {loser['headline'][:50]}...")
 
-        # If odd number, last one gets a bye
-        if len(current_round) % 2 == 1:
-            bye = current_round[-1]
-            next_round.append(bye)
-            print(f"  BYE: {bye['headline'][:50]}...")
+            for future in as_completed(futures):
+                ordered, explanation = future.result()
+                winners = ordered[:3]
+                losers = ordered[3:]
 
-        eliminated[round_num] = round_losers
-        current_round = next_round
+                next_remaining.extend(winners)
+                for pos, headline in enumerate(losers, start=3):
+                    round_eliminated.append((headline['headline_id'], pos))
+
+                winner_preview = [h['headline'][:40] for h in winners]
+                print(f"  Group ({len(ordered)}): winners={winner_preview}")
+
+        elimination_rounds.append(round_eliminated)
+        remaining = next_remaining
         round_num += 1
 
-    # Winner is the last one standing
-    winner_id = current_round[0]['headline_id']
-    total_rounds = round_num - 1  # -1 because we incremented after the final round
+    # Final round — rank all remaining in one call
+    print(f"--- Final round ({len(remaining)} headlines) ---")
+    final_ordered, explanation = rank_group(remaining, round_num, len(remaining))
 
-    # Convert elimination rounds to ranks
-    # Rank 1 = winner
-    # Rank 2 = lost in final (round = total_rounds)
-    # Rank 3 = lost in semifinal (round = total_rounds - 1)
-    # etc.
-    # Use string keys for DynamoDB compatibility
-    headlines_by_rank = {"1": [winner_id]}
+    # Assign ranks: final group gets explicit 1-N ordering
+    headlines_by_rank = {}
+    current_rank = 1
 
-    for elim_round, loser_ids in eliminated.items():
-        # rank = (total_rounds - elim_round) + 2
-        # final = total_rounds → rank 2
-        # semifinal = total_rounds-1 → rank 3
-        rank = total_rounds - elim_round + 2
-        headlines_by_rank[str(rank)] = loser_ids
+    for headline in final_ordered:
+        headlines_by_rank[str(current_rank)] = [headline['headline_id']]
+        current_rank += 1
+
+    # Earlier rounds in reverse order (most recent first = closest to final)
+    for round_eliminated in reversed(elimination_rounds):
+        round_eliminated.sort(key=lambda x: x[1])
+        for _pos, pos_group in groupby(round_eliminated, key=lambda x: x[1]):
+            ids = [hid for hid, _ in pos_group]
+            headlines_by_rank[str(current_rank)] = ids
+            current_rank += 1
 
     print(f"Final rankings: {headlines_by_rank}")
     return headlines_by_rank
 
 
-def compare_pair(a: dict, b: dict, use_finals=False,
-                  round_num=0, remaining=0) -> dict:
-    """
-    Ask the model which headline is funnier, with full context about
-    the original story and comedic angle.
-    """
-    prompt = f"""Which satirical headline is better? Consider the original news and the comedic approach.
+def distribute_into_groups(items: list, num_groups: int) -> list:
+    """Distribute items as evenly as possible into num_groups groups (sizes 8-12)."""
+    base_size = len(items) // num_groups
+    remainder = len(items) % num_groups
 
-HEADLINE A: "{a['headline']}"
-  Original: "{a['original_headline']}"
-  Comedic angle: {a['angle']}
-  Approach: {a['angle_setup']}
+    groups = []
+    start = 0
+    for i in range(num_groups):
+        size = base_size + (1 if i < remainder else 0)
+        groups.append(items[start:start + size])
+        start += size
 
-HEADLINE B: "{b['headline']}"
-  Original: "{b['original_headline']}"
-  Comedic angle: {b['angle']}
-  Approach: {b['angle_setup']}
+    return groups
+
+
+def rank_group(group: list, round_num: int, remaining: int) -> tuple:
+    """
+    Ask the model to rank a group of headlines from best to worst.
+    Returns (ordered_headlines, explanation).
+    """
+    labels = [chr(ord('A') + i) for i in range(len(group))]
+
+    headline_lines = []
+    for label, h in zip(labels, group):
+        headline_lines.append(f'{label}: "{h["headline"]}"')
+        headline_lines.append(f'  Original: "{h["original_headline"]}"')
+
+    is_late = remaining <= 40
+    if is_late:
+        explanation_instruction = (
+            "explain your reasoning — what made the top picks stand out "
+            "and what held others back (3-5 sentences)"
+        )
+    else:
+        explanation_instruction = (
+            "briefly note what made your top pick stand out (1 sentence)"
+        )
+
+    headline_block = '\n'.join(headline_lines)
+    prompt = f"""Rank these satirical headlines from best to worst. Consider the original news and comedic approach.
+
+{headline_block}
 
 Value CRAFT as much as humor:
 - Clever alliteration or assonance
@@ -213,55 +221,59 @@ Value CRAFT as much as humor:
 - Rhythm and flow when read aloud
 - How well the joke plays off the original headline
 
-A straightforward joke that lands is good, but a headline with clever linguistic craft is equally valuable.
+Reply with ALL letters in order from best to worst, separated by commas.
+Then on a new line, {explanation_instruction}."""
 
-Reply with ONLY the letter A or B, nothing else."""
+    max_tokens = 400 if is_late else 200
 
     response_text = call_tournament_model(
-        prompt, use_finals=use_finals,
+        prompt, max_tokens=max_tokens,
         round_num=round_num, remaining=remaining,
-    ).strip().upper()
+    )
 
-    # Parse response - look for A or B
-    if "A" in response_text and "B" not in response_text:
-        return a
-    elif "B" in response_text and "A" not in response_text:
-        return b
-    elif response_text.startswith("A"):
-        return a
-    elif response_text.startswith("B"):
-        return b
-    else:
-        # If unclear, pick randomly
-        print(f"Unclear tournament response: {response_text}, picking randomly")
-        return random.choice([a, b])
+    # Parse: first line = comma-separated letters, rest = explanation
+    lines = response_text.strip().split('\n')
+    ranking_line = lines[0]
+    explanation = '\n'.join(lines[1:]).strip()
+
+    valid_max = chr(ord('A') + len(group) - 1)
+    letters = [c.strip().upper() for c in ranking_line.split(',')]
+    valid = [l for l in letters if len(l) == 1 and 'A' <= l <= valid_max]
+
+    label_to_headline = {chr(ord('A') + i): h for i, h in enumerate(group)}
+
+    ordered = []
+    seen = set()
+    for letter in valid:
+        if letter not in seen:
+            ordered.append(label_to_headline[letter])
+            seen.add(letter)
+
+    # Append unmentioned headlines in random order
+    unmentioned = [h for i, h in enumerate(group) if chr(ord('A') + i) not in seen]
+    if unmentioned:
+        random.shuffle(unmentioned)
+        ordered.extend(unmentioned)
+
+    # If completely unparseable, shuffle randomly
+    if not valid:
+        print(f"Unparseable ranking response, shuffling: {ranking_line}")
+        random.shuffle(ordered)
+
+    return ordered, explanation
 
 
 MAX_RETRIES = 4
 RETRY_BASE_DELAY = 2  # seconds
 
 
-def call_tournament_model(prompt: str, use_finals=False,
-                          round_num=0, remaining=0) -> str:
-    """Call the configured tournament model, switching to finals model when appropriate.
-    Retries with exponential backoff on rate limit or transient errors.
-    Only finals rounds are traced in Langfuse to stay within free tier."""
-    if use_finals:
-        return _call_tournament_model_traced(
-            prompt, round_num=round_num, remaining=remaining,
-        )
-
-    return _call_tournament_model_untraceable(
-        prompt, round_num=round_num, remaining=remaining,
-    )
-
-
 @observe(as_type="generation")
-def _call_tournament_model_traced(prompt: str, round_num=0, remaining=0) -> str:
-    """Finals model call — traced in Langfuse."""
-    provider = os.getenv("TOURNAMENT_FINALS_PROVIDER", "anthropic")
-    model = os.getenv("TOURNAMENT_FINALS_MODEL", "claude-opus-4-6")
-    text, usage = _do_api_call(provider, model, round_num, remaining, prompt=prompt)
+def call_tournament_model(prompt: str, max_tokens=200,
+                          round_num=0, remaining=0) -> str:
+    """Call the tournament model. All calls use Opus and are traced in Langfuse."""
+    provider = os.getenv("TOURNAMENT_PROVIDER", "anthropic")
+    model = os.getenv("TOURNAMENT_MODEL", "claude-opus-4-6")
+    text, usage = _do_api_call(provider, model, prompt, max_tokens=max_tokens)
     langfuse.update_current_generation(
         model=model,
         usage_details=usage,
@@ -270,17 +282,10 @@ def _call_tournament_model_traced(prompt: str, round_num=0, remaining=0) -> str:
     return text
 
 
-def _call_tournament_model_untraceable(prompt: str, round_num=0, remaining=0) -> str:
-    """Bulk model call — not traced in Langfuse."""
-    provider = os.getenv("TOURNAMENT_PROVIDER", "google")
-    model = os.getenv("TOURNAMENT_MODEL", "gemini-2.5-flash")
-    text, _ = _do_api_call(provider, model, round_num, remaining, prompt=prompt)
-    return text
-
-
-def _do_api_call(provider, model, round_num, remaining, prompt) -> tuple:
+def _do_api_call(provider: str, model: str, prompt: str,
+                 max_tokens: int = 200) -> tuple:
     """Make the actual API call with retries. Returns (text, usage_dict)."""
-    print(f"[tournament] Calling {provider}/{model} (round={round_num}, remaining={remaining})")
+    print(f"[tournament] Calling {provider}/{model} (max_tokens={max_tokens})")
 
     for attempt in range(MAX_RETRIES + 1):
         try:
@@ -288,7 +293,7 @@ def _do_api_call(provider, model, round_num, remaining, prompt) -> tuple:
                 client = get_anthropic_client()
                 response = client.messages.create(
                     model=model,
-                    max_tokens=10,
+                    max_tokens=max_tokens,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 text = response.content[0].text
@@ -296,23 +301,6 @@ def _do_api_call(provider, model, round_num, remaining, prompt) -> tuple:
                     "input_tokens": response.usage.input_tokens,
                     "output_tokens": response.usage.output_tokens,
                 }
-            elif provider == "google":
-                client = get_google_client()
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_modalities=["TEXT"],
-                        temperature=0.5,
-                    ),
-                )
-                text = response.candidates[0].content.parts[0].text.strip()
-                usage = {}
-                if response.usage_metadata:
-                    usage = {
-                        "input_tokens": response.usage_metadata.prompt_token_count,
-                        "output_tokens": response.usage_metadata.candidates_token_count,
-                    }
             else:
                 raise ValueError(f"Unknown provider: {provider}")
 
