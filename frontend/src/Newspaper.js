@@ -11,6 +11,7 @@ import Box from '@mui/material/Box';
 import './Newspaper.css'
 import Story from './Story';
 import StoryDetail from './StoryDetail';
+import StoryDetailBackingPanels from './StoryDetailBackingPanels';
 import isDebugModeState from './state/isDebugModeState';
 import getStoryTitleDisplay from './getStoryTitleDisplay';
 
@@ -22,6 +23,9 @@ export default function Newspaper() {
   const [selectedStory, setSelectedStory] = useState(null);
   const [selectedStoryClickLocation, setSelectedStoryClickLocation] = useState(null);
   const [isDebugMode, setIsDebugMode] = useRecoilState(isDebugModeState);
+  const [topHeadlines, setTopHeadlines] = useState([]);
+  const [showTopHeadlines, setShowTopHeadlines] = useState(false);
+  const [topHeadlinesClickLocation, setTopHeadlinesClickLocation] = useState(null);
 
   function loadPaper() {
     const defaultApiPath = '/today';
@@ -48,6 +52,7 @@ export default function Newspaper() {
     request.then(function (response) {
       setPaperName(response.data.PaperName);
       setStories(response.data.Stories);
+      setTopHeadlines(response.data.TopHeadlines || []);
     });
 
     return request;
@@ -97,6 +102,7 @@ export default function Newspaper() {
     }
 
     setSelectedStory(story);
+    setShowTopHeadlines(false);
     setSelectedStoryClickLocation({
       x: clickEvent.clientX,
       y: clickEvent.clientY
@@ -119,6 +125,13 @@ export default function Newspaper() {
     setIsDebugMode(currentValue => !currentValue);
   }
 
+  function handleDateClick(e) {
+    if (!isDebugMode) return;
+    setSelectedStory(null);
+    setShowTopHeadlines(prev => !prev);
+    setTopHeadlinesClickLocation({ x: e.clientX, y: e.clientY });
+  }
+
   const date = DateTime.now();
 
   return (
@@ -132,7 +145,7 @@ export default function Newspaper() {
       </Box>
 
       <Box className='paper-details'>
-        <Box className='date'>
+        <Box className='date' onClick={handleDateClick}>
           <span className='long-date'>
             {date.toFormat('EEEE d, MMMM y')}
           </span>
@@ -182,6 +195,28 @@ export default function Newspaper() {
         <StoryDetail story={selectedStory}
                      onClick={(e) => handleStoryDetailOpen(e, null)}
                      clickLocation={selectedStoryClickLocation}/>
+      }
+
+      {showTopHeadlines && isDebugMode &&
+        <div onClick={() => setShowTopHeadlines(false)}>
+          <StoryDetailBackingPanels clickLocation={topHeadlinesClickLocation}/>
+          <div className='story-detail'>
+            <Box mb={2} className='title'>Top 64 Headlines</Box>
+            <Box className='headline-list'>
+              {topHeadlines.map((h) => (
+                <Box key={h.HeadlineId} className='headline-list-item'>
+                  <a href={`/${stories[0]?.YearMonthDay || ''}/${h.HeadlineId}`}
+                     onClick={(e) => e.stopPropagation()}>
+                    {h.Headline}
+                  </a>
+                  {(h.Angle || h.Rank != null) &&
+                    <span className='headline-angle'> [{[h.Angle, h.Rank != null ? `rank ${h.Rank}` : ''].filter(Boolean).join(', ')}]</span>
+                  }
+                </Box>
+              ))}
+            </Box>
+          </div>
+        </div>
       }
 
     </div>

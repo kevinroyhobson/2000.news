@@ -15,7 +15,9 @@ export default function StoryDetail(props) {
 
   const isDebugMode = useRecoilValue(isDebugModeState);
 
-  const siblingHeadlines = story.SiblingHeadlines || [];
+  const siblingHeadlines = (story.SiblingHeadlines || [])
+    .slice()
+    .sort((a, b) => (a.Rank ?? Infinity) - (b.Rank ?? Infinity));
 
   return (
     <div onClick={onClick}>
@@ -42,21 +44,18 @@ export default function StoryDetail(props) {
         }
 
         {isDebugMode && siblingHeadlines.length > 0 &&
-          <Box mt={3} className='sibling-headlines'>
-            <Box className='sibling-headlines-header'>Other headline options:</Box>
+          <Box mt={3} className='headline-list'>
+            <Box className='headline-list-header'>Other headline options:</Box>
             {siblingHeadlines.map((sibling) => (
-              <Box key={sibling.HeadlineId} className='sibling-headline'>
+              <Box key={sibling.HeadlineId} className='headline-list-item'>
                 <a
                   href={`/${story.YearMonthDay}/${sibling.HeadlineId}`}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {sibling.Headline}
                 </a>
-                {sibling.Angle &&
-                  <span className='sibling-angle'> [{sibling.Angle}]</span>
-                }
-                {sibling.Rank != null &&
-                  <span className='sibling-rank'> (rank: {sibling.Rank})</span>
+                {(sibling.Angle || sibling.Rank != null) &&
+                  <span className='headline-angle'> [{[sibling.Angle, sibling.Rank != null ? `rank ${sibling.Rank}` : ''].filter(Boolean).join(', ')}]</span>
                 }
               </Box>
             ))}

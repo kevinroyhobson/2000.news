@@ -46,6 +46,8 @@ def get(event, context):
     # Get story details for selected headlines
     stories = enrich_with_story_details(selected, headlines, requested_headline_id)
 
+    top_headlines = get_top_headlines(headlines)
+
     paper_name = f"The {get_random_word('adjective').capitalize()} {get_random_word('newspaper-name').capitalize()}"
 
     return {
@@ -53,6 +55,7 @@ def get(event, context):
         'body': json.dumps({
             'PaperName': paper_name,
             'Stories': stories,
+            'TopHeadlines': top_headlines,
         }, default=lambda x: int(x) if isinstance(x, Decimal) and x % 1 == 0 else float(x) if isinstance(x, Decimal) else str(x)),
         'headers': {
             'Content-Type': 'application/json',
@@ -94,10 +97,9 @@ def select_headlines(headlines, requested_headline_id, search_query=''):
     Select 4 headlines using expanding pool algorithm.
     Ensures unique StoryIds and favors higher-ranked headlines.
 
-    If search_query is provided, headlines matching the query (in Headline or OriginalHeadline)
-    are floated to the top in random order.
+    If search_query is provided, matching headlines are floated to the top in random order.
 
-    Pool sizes: 8, 16, 32, 64 - pick one randomly from each pool, ensuring unique stories.
+    Pool sizes: 16, 16, 32, 64 - pick one randomly from each pool, ensuring unique stories.
     """
     if not headlines:
         return []
@@ -142,11 +144,10 @@ def select_headlines(headlines, requested_headline_id, search_query=''):
                 picked_story_ids.add(h['StoryId'])
 
     # Expanding pool selection: pick randomly from each pool
-    pool_sizes = [8, 16, 32, 64]
+    pool_sizes = [16, 16, 32, 64]
     for pool_size in pool_sizes:
         if len(result) >= 4:
             break
-        # Get top N headlines with unpicked stories
         pool = [
             h for h in sorted_headlines[:pool_size]
             if h['StoryId'] not in picked_story_ids
@@ -196,7 +197,7 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
 
         # Get sibling headlines
         siblings = [s for s in all_headlines if s['YearMonthDay'] == h['YearMonthDay'] and s['StoryId'] == h['StoryId']]
-        siblings = to_sibling_view_models(siblings)
+        siblings = to_headline_list(siblings)
 
         # Don't show original if this headline was specifically requested via URL
         show_original = False if h['HeadlineId'] == requested_headline_id else random.random() < 0.25
@@ -230,14 +231,21 @@ def get_stories_for_day(day_key):
     return response.get('Items', [])
 
 
-def to_sibling_view_models(headlines):
-    """Transform headline objects into sibling view models."""
+def to_headline_list(headlines):
+    """Transform headline objects into headline list view models."""
     return [{
-        'HeadlineId': s['HeadlineId'],
-        'Headline': s['Headline'],
-        'Angle': s.get('Angle', ''),
-        'Rank': s.get('Rank'),
-    } for s in headlines]
+        'HeadlineId': h['HeadlineId'],
+        'Headline': h.get('Headline', ''),
+        'Angle': h.get('Angle', ''),
+        'Rank': h.get('Rank'),
+    } for h in headlines]
+
+
+def get_top_headlines(headlines, limit=64):
+    """Get the top headlines by rank."""
+    max_rank = max((h.get('Rank') or 0 for h in headlines), default=0)
+    sorted_h = sorted(headlines, key=lambda h: h.get('Rank') or (max_rank + 1))
+    return to_headline_list(sorted_h[:limit])
 
 
 def get_random_word(word_type):
