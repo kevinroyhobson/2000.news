@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 from langfuse import get_client, observe
 from lib.ssm_secrets import get_secret
 
+from zoneinfo import ZoneInfo
+
 _dynamo_resource = boto3.resource("dynamodb")
 _headlines_table = _dynamo_resource.Table("SubvertedHeadlines")
 load_dotenv()
@@ -40,6 +42,35 @@ langfuse = get_client()
 
 _anthropic_client = None
 _google_client = None
+_few_shot_cache = None
+
+
+# Static system prompt for brainstorm stage (>1024 tokens for Anthropic prompt caching)
+BRAINSTORM_SYSTEM_PROMPT = """You are a veteran comedy writer brainstorming angles for a satirical newspaper (The Onion meets SimCity 2000). Given a real headline, find every comedic angle — puns, wordplay, absurdist reframings, dark satire — for a headline writer to develop. Quantity AND quality: each angle needs a real comedic mechanism, not a vague gesture at humor.
+
+ANGLE TYPES (aim for variety):
+1. PUN / WORDPLAY — Phonetic puns (must work aloud), double meanings, compound puns. E.g.: "Republicans Can the Jokes Following Death of Rep. Bean" — "can" = stop + preserve in tin.
+2. RHYME / ALLITERATION — Musical quality, satisfying meter, natural alliterative runs.
+3. ABSURDIST / SURREAL — Logical extremes, mundane framing on extraordinary events, SimCity bureaucratic madness. E.g.: "Local Woman Achieves Elite Frequent Flyer Status Through Emotional Avoidance"
+4. DARK SATIRE — Say the uncomfortable truth out loud. Punch UP at power/institutions, never down. E.g.: "ICE to See You: Trump's Immigration Agents Give Ex-Marine Cold Homecoming"
+5. CIRCUMLOCUTION — Overly specific roundabout descriptions where the description IS the joke. E.g.: "Dear Abby: Professional Boxer Tired of Getting Hit On at Work"
+6. REVERSAL / IRONY — Flip the framing: villain as hero, tragedy as celebration, deadpan wrong conclusions.
+7. POP CULTURE REFERENCE — Repurposed titles/catchphrases/lyrics that add meaning, not just recognition.
+8. BUREAUCRATIC / INSTITUTIONAL — Human drama as paperwork. "Report Finds" / "Officials Warn" only when the framing IS the joke.
+
+QUALITY BAR:
+- Each angle needs a specific mechanism (pun, twist, reference), not just "make it funny"
+- Setup must be concrete enough that a writer knows exactly where to go
+- Puns must work phonetically, not just visually
+- Punch up, not down — satire should be irreverant and afflict the comfortable
+- Skip obvious first-draft ideas anyone would think of in 5 seconds
+
+RESPONSE FORMAT:
+Return a JSON array with 5 angles, each a DIFFERENT type:
+[{"angle_name": "...", "setup": "...", "keywords": ["...", "..."]}]
+- angle_name: Type and target (e.g., "pun on 'bill'", "absurdist bureaucracy")
+- setup: 1-2 sentences describing the specific comedic premise or mechanism
+- keywords: 2-4 specific words/phrases to build the headline around"""
 
 
 def get_stage_config(stage: str) -> dict:
@@ -47,7 +78,7 @@ def get_stage_config(stage: str) -> dict:
     stage_upper = stage.upper()
     return {
         "provider": os.getenv(f"{stage_upper}_PROVIDER", "anthropic"),
-        "model": os.getenv(f"{stage_upper}_MODEL", "claude-haiku-4-5"),
+        "model": os.getenv(f"{stage_upper}_MODEL", "claude-haiku-4-5-20251001"),
     }
 
 
@@ -63,6 +94,44 @@ def get_google_client():
     if _google_client is None:
         _google_client = genai.Client(api_key=get_secret("GEMINI_API_KEY"))
     return _google_client
+
+
+def get_few_shot_examples() -> str:
+    """Fetch recent top-ranked headlines as few-shot style examples. Cached per Lambda warm period."""
+    global _few_shot_cache
+    if _few_shot_cache is not None:
+        return _few_shot_cache
+
+    try:
+        now = datetime.datetime.now(ZoneInfo('America/New_York'))
+        examples = []
+        # Grab the #1 headline from each of the last few days
+        for days_ago in range(1, 5):
+            if len(examples) >= 2:
+                break
+            day_key = (now - datetime.timedelta(days=days_ago)).strftime('%Y%m%d')
+            response = _headlines_table.query(
+                KeyConditionExpression=Key('YearMonthDay').eq(day_key),
+            )
+            items = response.get('Items', [])
+            ranked = [i for i in items if i.get('Rank') is not None]
+            ranked.sort(key=lambda x: x['Rank'])
+            if ranked:
+                item = ranked[0]
+                examples.append(
+                    f"- Original: \"{item.get('OriginalHeadline', '')}\"\n"
+                    f"  Satirical: \"{item.get('Headline', '')}\""
+                )
+
+        if examples:
+            _few_shot_cache = "\n\nRecent top-ranked headlines from our paper:\n" + "\n".join(examples)
+        else:
+            _few_shot_cache = ""
+    except Exception as e:
+        print(f"Failed to fetch few-shot examples: {e}")
+        _few_shot_cache = ""
+
+    return _few_shot_cache
 
 
 def subvert(event, context):
@@ -143,28 +212,14 @@ def stage_1_brainstorm(title: str, subtitle: str) -> list:
     Also does context enrichment: finds pun opportunities, rhymes, references.
     """
     random_words = get_random_words(8)
+    few_shot = get_few_shot_examples()
 
-    prompt = f"""Analyze this news headline and brainstorm comedic angles for rewriting it.
-
-HEADLINE: "{title}"
+    prompt = f"""HEADLINE: "{title}"
 CONTEXT: "{subtitle}"
 
-Your task:
-1. Identify the key nouns/verbs that could be punned or rhymed
-2. Think of pop culture references, memes, wordplay or alliteration/assonance opportunities
-3. Generate 5 distinct comedic angles to explore
+Random words for inspiration (use if they fit naturally): {', '.join(random_words)}{few_shot}"""
 
-Consider these random words/concepts for inspiration (use if they fit naturally): {', '.join(random_words)}
-
-For each angle, provide:
-- angle_name: A short label (e.g., "pun on X", "rhyming", "absurdist")
-- setup: The comedic premise or wordplay opportunity
-- keywords: Specific words/phrases to incorporate
-
-Return as JSON array:
-[{{"angle_name": "...", "setup": "...", "keywords": ["...", "..."]}}]"""
-
-    response_text = call_model("brainstorm", prompt)
+    response_text = call_model("brainstorm", prompt, system_prompt=BRAINSTORM_SYSTEM_PROMPT)
     angles = parse_json_response(response_text)
 
     # Ensure we have at least some angles even if parsing partially fails
@@ -203,7 +258,7 @@ Style guide:
 - It's OK to twist the meaning for comedic effect
 
 Return as JSON array:
-[{{"headline": "...", "angle_used": "{angle['angle_name']}"}}]"""
+[{{"headline": "..."}}]"""
 
         response_text = call_model("generate", prompt)
         parsed = parse_json_response(response_text)
@@ -236,7 +291,7 @@ def format_headline(headline: dict) -> dict:
 
 
 @observe(as_type="generation")
-def call_model(stage: str, prompt: str) -> str:
+def call_model(stage: str, prompt: str, system_prompt: str = None) -> str:
     """
     Unified model calling interface. Routes to the configured provider/model for each stage.
     """
@@ -247,30 +302,50 @@ def call_model(stage: str, prompt: str) -> str:
     print(f"[{stage}] Calling {provider}/{model}")
 
     if provider == "anthropic":
-        response_text, usage = call_anthropic(model, prompt)
+        response_text, usage = call_anthropic(model, prompt, system_prompt)
     elif provider == "google":
         response_text, usage = call_google(model, prompt)
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
-    langfuse.update_current_generation(model=model, usage_details=usage)
+    input_messages = [{"role": "user", "content": prompt}]
+    if system_prompt:
+        input_messages.insert(0, {"role": "system", "content": system_prompt})
+    langfuse.update_current_generation(
+        model=model,
+        input=input_messages,
+        output=response_text,
+        usage_details=usage,
+    )
     return response_text
 
 
-def call_anthropic(model: str, prompt: str) -> tuple:
-    """Call Anthropic's API. Returns (text, usage_dict)."""
+def call_anthropic(model: str, prompt: str, system_prompt: str = None) -> tuple:
+    """Call Anthropic's API with optional cached system prompt. Returns (text, usage_dict)."""
     client = get_anthropic_client()
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    kwargs = {
+        "model": model,
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if system_prompt:
+        kwargs["system"] = [{
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }]
+
+    response = client.messages.create(**kwargs)
 
     usage = {
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
     }
+    if hasattr(response.usage, 'cache_creation_input_tokens'):
+        usage["cache_creation_input_tokens"] = response.usage.cache_creation_input_tokens
+    if hasattr(response.usage, 'cache_read_input_tokens'):
+        usage["cache_read_input_tokens"] = response.usage.cache_read_input_tokens
     return response.content[0].text, usage
 
 

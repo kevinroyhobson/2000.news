@@ -2,7 +2,7 @@
 Scheduled Lambda that fetches news stories from newsdata.io.
 
 Runs 4x/day (5am, 11am, 3pm, 8pm PT).
-Fetches from 5 categories + 1 wildcard, saving up to 5 stories each.
+Fetches from 5 categories + 1 wildcard, saving up to 3 stories each.
 Budget: ~6 fetches × 3 pages max = 18 API credits per run, 72/day (well within 200 free tier limit).
 """
 
@@ -12,7 +12,7 @@ from lib.stories_repository import StoriesRepository
 
 CATEGORIES = ["business", "entertainment", "sports", "technology", "politics"]
 WILDCARD = "wildcard"
-MAX_STORIES_PER_CATEGORY = 5
+MAX_STORIES_PER_CATEGORY = 3
 MAX_API_CALLS_PER_CATEGORY = 3
 
 _client = NewsdataClient()

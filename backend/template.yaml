@@ -79,7 +79,7 @@ Resources:
       Runtime: python3.13
       MemorySize: 1024
       Events:
-        # 4x/day: 5am, 11am, 3pm, 8pm PT (UTC: 13, 19, 23, 04)
+        # 4x/day: 8am, 2pm, 6pm, 11pm ET (UTC: 13, 19, 23, 04)
         FetchMorning:
           Type: Schedule
           Properties:
@@ -119,7 +119,7 @@ Resources:
           BRAINSTORM_PROVIDER: anthropic
           BRAINSTORM_MODEL: claude-opus-4-6
           GENERATE_PROVIDER: anthropic
-          GENERATE_MODEL: claude-haiku-4-5
+          GENERATE_MODEL: claude-haiku-4-5-20251001
       Events:
        DDBEvent:
          Type: DynamoDB
@@ -146,10 +146,13 @@ Resources:
       Runtime: python3.13
       MemorySize: 1024
       Timeout: 900
+      ReservedConcurrentExecutions: 1
       Environment:
         Variables:
           TOURNAMENT_PROVIDER: anthropic
-          TOURNAMENT_MODEL: claude-opus-4-6
+          TOURNAMENT_MODEL_FINAL: claude-opus-4-6
+          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-4-5-20250929
+          TOURNAMENT_VERBOSE: "false"
       Events:
         HeadlineStream:
           Type: DynamoDB
@@ -158,6 +161,7 @@ Resources:
             StartingPosition: TRIM_HORIZON
             BatchSize: 1000
             MaximumBatchingWindowInSeconds: 300
+            MaximumRetryAttempts: 1
             FilterCriteria:
               Filters:
                 - Pattern: '{"eventName": ["INSERT"]}'

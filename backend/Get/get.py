@@ -23,30 +23,43 @@ def get(event, context):
     logger.info(event)
 
     params = parse_path_params(event)
+    is_today = 'day' not in params
 
     # Get the day to query
-    if 'day' in params:
-        day_key = params['day']
-    else:
+    if is_today:
         day_key = get_day_key()
+    else:
+        day_key = params['day']
 
-    # Get headlines and select the best ones
+    # Get headlines
     headlines = get_headlines_for_day(day_key)
 
-    # If not enough headlines, include yesterday
-    if len(headlines) < 4:
-        yesterday_key = get_day_key(datetime.now(ZoneInfo('America/New_York')) - timedelta(days=1))
+    if is_today:
+        # /today: pull from 3 days for cross-day pool
+        now = datetime.now(ZoneInfo('America/New_York'))
+        yesterday_key = get_day_key(now - timedelta(days=1))
+        day_before_key = get_day_key(now - timedelta(days=2))
         headlines.extend(get_headlines_for_day(yesterday_key))
+        headlines.extend(get_headlines_for_day(day_before_key))
+        # Use CrossDayRank if the cross-day tournament has run, else fall back to Rank
+        has_cross_day = any(h.get('CrossDayRank') is not None for h in headlines)
+        rank_field = 'CrossDayRank' if has_cross_day else 'Rank'
+    else:
+        # /{day}: show that day only, use regular Rank
+        if len(headlines) < 4:
+            yesterday_key = get_day_key(datetime.now(ZoneInfo('America/New_York')) - timedelta(days=1))
+            headlines.extend(get_headlines_for_day(yesterday_key))
+        rank_field = 'Rank'
 
     # Select 4 headlines using expanding pool algorithm
     requested_headline_id = params.get('headline_slug', '')
     search_query = params.get('q', '')
-    selected = select_headlines(headlines, requested_headline_id, search_query)
+    selected = select_headlines(headlines, requested_headline_id, search_query, rank_field)
 
     # Get story details for selected headlines
     stories = enrich_with_story_details(selected, headlines, requested_headline_id)
 
-    top_headlines = get_top_headlines(headlines)
+    top_headlines = get_top_headlines(headlines, rank_field=rank_field)
 
     paper_name = f"The {get_random_word('adjective').capitalize()} {get_random_word('newspaper-name').capitalize()}"
 
@@ -92,7 +105,7 @@ def get_headlines_for_day(day_key):
     return headlines
 
 
-def select_headlines(headlines, requested_headline_id, search_query=''):
+def select_headlines(headlines, requested_headline_id, search_query='', rank_field='Rank'):
     """
     Select 4 headlines using expanding pool algorithm.
     Ensures unique StoryIds and favors higher-ranked headlines.
@@ -100,15 +113,16 @@ def select_headlines(headlines, requested_headline_id, search_query=''):
     If search_query is provided, matching headlines are floated to the top in random order.
 
     Pool sizes: 16, 16, 32, 64 - pick one randomly from each pool, ensuring unique stories.
+    rank_field: 'Rank' for daily view, 'CrossDayRank' for /today cross-day view.
     """
     if not headlines:
         return []
 
     # Find max rank for sorting unranked items last
-    max_rank = max((h.get('Rank') or 0 for h in headlines), default=0)
+    max_rank = max((h.get(rank_field) or 0 for h in headlines), default=0)
 
     def get_rank(h):
-        return h.get('Rank') or (max_rank + 1)
+        return h.get(rank_field) or (max_rank + 1)
 
     # Sort by rank
     sorted_headlines = sorted(headlines, key=get_rank)
@@ -231,21 +245,21 @@ def get_stories_for_day(day_key):
     return response.get('Items', [])
 
 
-def to_headline_list(headlines):
+def to_headline_list(headlines, rank_field='Rank'):
     """Transform headline objects into headline list view models."""
     return [{
         'HeadlineId': h['HeadlineId'],
         'Headline': h.get('Headline', ''),
         'Angle': h.get('Angle', ''),
-        'Rank': h.get('Rank'),
+        'Rank': h.get(rank_field),
     } for h in headlines]
 
 
-def get_top_headlines(headlines, limit=64):
+def get_top_headlines(headlines, limit=64, rank_field='Rank'):
     """Get the top headlines by rank."""
-    max_rank = max((h.get('Rank') or 0 for h in headlines), default=0)
-    sorted_h = sorted(headlines, key=lambda h: h.get('Rank') or (max_rank + 1))
-    return to_headline_list(sorted_h[:limit])
+    max_rank = max((h.get(rank_field) or 0 for h in headlines), default=0)
+    sorted_h = sorted(headlines, key=lambda h: h.get(rank_field) or (max_rank + 1))
+    return to_headline_list(sorted_h[:limit], rank_field=rank_field)
 
 
 def get_random_word(word_type):
