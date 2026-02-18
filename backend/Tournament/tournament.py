@@ -585,6 +585,9 @@ def run_cross_day_tournament(today: str, today_survivors: list):
     if len(pool) < 2:
         return
 
+    # Clear stale CrossDayRank from all 3 days before writing new ranks
+    clear_cross_day_ranks([today, yesterday, day_before])
+
     ranked = run_tournament(pool)
     update_cross_day_ranks(ranked, hid_to_day)
     print(f"Cross-day tournament complete: {len(ranked)} ranks assigned")
@@ -603,6 +606,34 @@ def get_top_n_for_day(day_key: str, n: int) -> list:
     ranked = [h for h in all_headlines if h.get('rank') is not None]
     ranked.sort(key=lambda h: h['rank'])
     return ranked[:n]
+
+
+def clear_cross_day_ranks(day_keys: list):
+    """Remove stale CrossDayRank from all headlines in the given days."""
+    cleared = 0
+    for day_key in day_keys:
+        response = _headlines_table.query(
+            KeyConditionExpression=Key('YearMonthDay').eq(day_key),
+            FilterExpression='attribute_exists(CrossDayRank)',
+            ProjectionExpression='YearMonthDay, HeadlineId',
+        )
+        items = response.get('Items', [])
+        while 'LastEvaluatedKey' in response:
+            response = _headlines_table.query(
+                KeyConditionExpression=Key('YearMonthDay').eq(day_key),
+                FilterExpression='attribute_exists(CrossDayRank)',
+                ProjectionExpression='YearMonthDay, HeadlineId',
+                ExclusiveStartKey=response['LastEvaluatedKey'],
+            )
+            items.extend(response.get('Items', []))
+
+        for item in items:
+            _headlines_table.update_item(
+                Key={'YearMonthDay': item['YearMonthDay'], 'HeadlineId': item['HeadlineId']},
+                UpdateExpression='REMOVE CrossDayRank',
+            )
+            cleared += 1
+    print(f"Cleared CrossDayRank from {cleared} headlines across {len(day_keys)} days")
 
 
 def update_cross_day_ranks(headlines_by_rank: dict, hid_to_day: dict):

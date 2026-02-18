@@ -54,7 +54,8 @@ def get(event, context):
     # Select 4 headlines using expanding pool algorithm
     requested_headline_id = params.get('headline_slug', '')
     search_query = params.get('q', '')
-    selected = select_headlines(headlines, requested_headline_id, search_query, rank_field)
+    seen_as_top = set(params.get('seen', '').split(',')) if params.get('seen') else set()
+    selected = select_headlines(headlines, requested_headline_id, search_query, rank_field, seen_as_top)
 
     # Get story details for selected headlines
     stories = enrich_with_story_details(selected, headlines, requested_headline_id)
@@ -105,18 +106,22 @@ def get_headlines_for_day(day_key):
     return headlines
 
 
-def select_headlines(headlines, requested_headline_id, search_query='', rank_field='Rank'):
+def select_headlines(headlines, requested_headline_id, search_query='', rank_field='Rank', seen_as_top=None):
     """
     Select 4 headlines using expanding pool algorithm.
     Ensures unique StoryIds and favors higher-ranked headlines.
 
     If search_query is provided, matching headlines are floated to the top in random order.
+    If seen_as_top is provided, the #1 pick is the highest-ranked unseen headline.
 
     Pool sizes: 16, 16, 32, 64 - pick one randomly from each pool, ensuring unique stories.
     rank_field: 'Rank' for daily view, 'CrossDayRank' for /today cross-day view.
     """
     if not headlines:
         return []
+
+    if seen_as_top is None:
+        seen_as_top = set()
 
     # Find max rank for sorting unranked items last
     max_rank = max((h.get(rank_field) or 0 for h in headlines), default=0)
@@ -137,6 +142,15 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
                 result.append(h)
                 picked_story_ids.add(h['StoryId'])
                 break
+
+    # If no requested headline and no search query, pick highest-ranked unseen headline for #1
+    if not result and not search_query:
+        for h in sorted_headlines:
+            if h['HeadlineId'] not in seen_as_top and h['StoryId'] not in picked_story_ids:
+                result.append(h)
+                picked_story_ids.add(h['StoryId'])
+                break
+        # If all are seen, fall through to expanding pool algorithm
 
     # If search query provided, prioritize matching headlines (in random order)
     if search_query:
@@ -252,6 +266,7 @@ def to_headline_list(headlines, rank_field='Rank'):
         'Headline': h.get('Headline', ''),
         'Angle': h.get('Angle', ''),
         'Rank': h.get(rank_field),
+        'YearMonthDay': h.get('YearMonthDay', ''),
     } for h in headlines]
 
 

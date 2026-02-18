@@ -16,6 +16,31 @@ import isDebugModeState from './state/isDebugModeState';
 import getStoryTitleDisplay from './getStoryTitleDisplay';
 
 
+function getSeenHeadlineIds() {
+  try {
+    return JSON.parse(localStorage.getItem('seenAsTopHeadline')) || [];
+  } catch {
+    return [];
+  }
+}
+
+function addSeenHeadlineId(id) {
+  try {
+    const seen = getSeenHeadlineIds();
+    if (!seen.includes(id)) {
+      seen.push(id);
+    }
+    // Cap at 200 entries, drop oldest
+    while (seen.length > 200) {
+      seen.shift();
+    }
+    localStorage.setItem('seenAsTopHeadline', JSON.stringify(seen));
+  } catch {
+    // localStorage unavailable (e.g. private browsing)
+  }
+}
+
+
 export default function Newspaper() {
 
   const [paperName, setPaperName] = useState([]);
@@ -45,6 +70,10 @@ export default function Newspaper() {
     if (searchQuery) {
       params.set('q', searchQuery);
     }
+    const seenIds = getSeenHeadlineIds();
+    if (seenIds.length > 0) {
+      params.set('seen', seenIds.join(','));
+    }
     const queryString = params.toString();
     const url = `https://api.2000.news${path}${queryString ? '?' + queryString : ''}`;
 
@@ -53,6 +82,9 @@ export default function Newspaper() {
       setPaperName(response.data.PaperName);
       setStories(response.data.Stories);
       setTopHeadlines(response.data.TopHeadlines || []);
+      if (response.data.Stories.length > 0 && !response.data.Stories[0].ShowOriginal) {
+        addSeenHeadlineId(response.data.Stories[0].HeadlineId);
+      }
     });
 
     return request;
@@ -205,7 +237,7 @@ export default function Newspaper() {
             <Box className='headline-list'>
               {topHeadlines.map((h) => (
                 <Box key={h.HeadlineId} className='headline-list-item'>
-                  <a href={`/${stories[0]?.YearMonthDay || ''}/${h.HeadlineId}`}
+                  <a href={`/${h.YearMonthDay}/${h.HeadlineId}`}
                      onClick={(e) => e.stopPropagation()}>
                     {h.Headline}
                   </a>
