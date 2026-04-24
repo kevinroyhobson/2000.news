@@ -121,7 +121,7 @@ def tournament(event, context):
     Progressive tournament: ranks new headlines + previous survivors only.
     """
     try:
-        today = datetime.datetime.now(ZoneInfo('America/New_York')).strftime('%Y%m%d')
+        today = (event or {}).get('date') or datetime.datetime.now(ZoneInfo('America/New_York')).strftime('%Y%m%d')
         print(f"Running tournament for {today}")
 
         all_headlines = get_headlines_for_day(today)
