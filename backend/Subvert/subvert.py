@@ -182,12 +182,48 @@ def subvert(event, context):
 def process_story(story):
     """Process a single story - compute subverted titles and save to SubvertedHeadlines."""
     print(f"Starting: {story['Title']}")
-    headlines = compute_subverted_titles(story["Title"], story.get("Description", ""))
+    entity_hints = _collect_entity_hints(story)
+    headlines = compute_subverted_titles(
+        story["Title"],
+        story.get("Description", ""),
+        entity_hints,
+    )
     save_headlines(story, headlines)
     return {"headline_count": len(headlines)}
 
 
-def compute_subverted_titles(title: str, subtitle: str):
+# Generic source-level labels that add no entity signal. Filter them out so
+# the brainstorm prompt is dominated by story-specific people/orgs/subjects.
+_HINT_NOISE = {
+    "top", "politics", "sports", "entertainment", "business",
+    "technology", "world", "us", "national",
+}
+
+
+def _collect_entity_hints(story: dict) -> list:
+    """Merge NYT <category> tags (stored as Category) with newsdata Keywords
+    into a single flat hint list. NYT is rich (people / orgs / subjects),
+    newsdata varies, ESPN is empty — fine, random_words still fires."""
+    hints = []
+    for field in ("Category", "Keywords"):
+        val = story.get(field)
+        if isinstance(val, list):
+            hints.extend(h for h in val if isinstance(h, str) and h)
+    # Dedup preserving order and drop generic source labels.
+    seen = set()
+    out = []
+    for h in hints:
+        if h.lower() in _HINT_NOISE:
+            continue
+        key = h.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(h)
+    return out
+
+
+def compute_subverted_titles(title: str, subtitle: str, entity_hints: list = None):
     """
     Two-stage pipeline:
     1. Brainstorm: Analyze the headline and generate comedic angles + context
@@ -195,7 +231,7 @@ def compute_subverted_titles(title: str, subtitle: str):
     All candidates are returned for the cross-story tournament to rank.
     """
     print(f"=== STAGE 1: BRAINSTORM ===")
-    angles = stage_1_brainstorm(title, subtitle)
+    angles = stage_1_brainstorm(title, subtitle, entity_hints or [])
     print(f"Generated {len(angles)} angles: {[a['angle_name'] for a in angles]}")
 
     print(f"=== STAGE 2: GENERATE ===")
@@ -206,7 +242,7 @@ def compute_subverted_titles(title: str, subtitle: str):
 
 
 @observe()
-def stage_1_brainstorm(title: str, subtitle: str) -> list:
+def stage_1_brainstorm(title: str, subtitle: str, entity_hints: list) -> list:
     """
     Analyze the headline and brainstorm comedic angles.
     Also does context enrichment: finds pun opportunities, rhymes, references.
@@ -214,10 +250,15 @@ def stage_1_brainstorm(title: str, subtitle: str) -> list:
     random_words = get_random_words(8)
     few_shot = get_few_shot_examples()
 
-    prompt = f"""HEADLINE: "{title}"
-CONTEXT: "{subtitle}"
+    entity_line = ""
+    if entity_hints:
+        entity_line = f"\nReal people, orgs, and topics from the story: {', '.join(entity_hints)}"
 
-Random words for inspiration (use if they fit naturally): {', '.join(random_words)}{few_shot}"""
+    prompt = f"""HEADLINE: "{title}"
+CONTEXT: "{subtitle}"{entity_line}
+
+Random words for absurdist friction: {', '.join(random_words)}
+Aim to work 2–3 of these in across your angles. Awkward or forced fits are often funnier than natural ones — the juxtaposition is part of the joke. Don't let them swamp the real story.{few_shot}"""
 
     response_text = call_model("brainstorm", prompt, system_prompt=BRAINSTORM_SYSTEM_PROMPT)
     angles = parse_json_response(response_text)
