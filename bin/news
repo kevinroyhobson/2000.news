@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Dispatcher for 2000.news local tooling. Add `<repo>/bin` to your PATH
+# (e.g. via ~/.zshrc) so `news <subcommand>` works from anywhere.
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND="$HERE/backend"
+VENV="$BACKEND/venv"
+
+usage() {
+    cat <<EOF
+Usage: news <command> [args...]
+
+Curation & evaluation:
+  curate              Walk ranked headlines and mark outstanding/solid/meh/bad
+  curate-fill         Backfill rationales on outstanding picks lacking one
+  curate-rebuild      Rescan and rewrite the materialized exemplar cache
+  grade               Paired A/B comparison grading
+  analyze             Print agreement stats for grades.jsonl
+  cache-test          Verify Opus prompt caching against the live system prompt
+
+Pipeline:
+  deploy              Deploy backend (./deploy.sh backend)
+  deploy-all          Deploy backend + frontend
+  fetch               Manually invoke the Fetch Lambda
+
+Use 'news <command> --help' for command-specific args.
+EOF
+}
+
+run_python() {
+    # shellcheck disable=SC1091
+    source "$VENV/bin/activate"
+    cd "$BACKEND"
+    exec python3 "$@"
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    curate)         run_python Scratch/curate_headlines.py "$@" ;;
+    curate-fill)    run_python Scratch/curate_headlines.py --fill-rationales "$@" ;;
+    curate-rebuild) run_python Scratch/curate_headlines.py --rebuild-cache "$@" ;;
+    grade)          run_python Scratch/grade_headlines.py "$@" ;;
+    analyze)        run_python Scratch/analyze_grades.py "$@" ;;
+    cache-test)     run_python Scratch/test_cache_hit.py "$@" ;;
+    deploy)         cd "$HERE" && exec ./deploy.sh backend "$@" ;;
+    deploy-all)     cd "$HERE" && exec ./deploy.sh "$@" ;;
+    fetch)
+        exec aws lambda invoke \
+            --region us-east-2 \
+            --function-name "$(aws lambda list-functions --region us-east-2 \
+                --query 'Functions[?starts_with(FunctionName, `news-2000-Fetch`)].FunctionName | [0]' \
+                --output text)" \
+            --invocation-type Event \
+            --payload '{}' \
+            /tmp/news-fetch.out
+        ;;
+    -h|--help|help|"") usage ;;
+    *)
+        echo "news: unknown command '$cmd'" >&2
+        echo "Run 'news --help' for usage." >&2
+        exit 1
+        ;;
+esac
