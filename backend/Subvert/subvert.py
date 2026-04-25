@@ -56,7 +56,7 @@ ANGLE TYPES (aim for variety):
 5. CIRCUMLOCUTION — Overly specific roundabout descriptions where the description IS the joke. E.g.: "Dear Abby: Professional Boxer Tired of Getting Hit On at Work"
 6. REVERSAL / IRONY — Flip the framing: villain as hero, tragedy as celebration, deadpan wrong conclusions.
 7. POP CULTURE REFERENCE — Repurposed titles/catchphrases/lyrics that add meaning, not just recognition.
-8. BUREAUCRATIC / INSTITUTIONAL — Human drama as paperwork. "Report Finds" / "Officials Warn" only when the framing IS the joke.
+8. FORMAT-BORROWING / INSTITUTIONAL — Wear the wholesale conventions of an unrelated genre: missing-persons posters (height, last-seen location), bond-rating downgrades (Moody's, junk status), court rulings (Geneva Convention, international tribunal), weather alerts, scientific journals, AP wire boilerplate. The borrowed format IS the joke. E.g.: 'MISSING: Kevin Durant, 6\'10", last seen in Houston. Lakers defeat search party 112-108' — flyer format applied to a basketball game; the deadpan-realism details and "defeat search party" pivot make it land.
 
 QUALITY BAR:
 - Each angle needs a specific mechanism (pun, twist, reference), not just "make it funny"
