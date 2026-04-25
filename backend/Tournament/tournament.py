@@ -20,7 +20,7 @@ from itertools import groupby
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import boto3
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 import anthropic
 from langfuse import get_client, observe
 from lib.ssm_secrets import get_secret
@@ -35,7 +35,7 @@ langfuse = get_client()
 
 SURVIVOR_COUNT = 64
 VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
-MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-6")
+MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-7")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-4-5-20250929")
 
 _anthropic_client = None
@@ -49,13 +49,22 @@ def get_anthropic_client():
 
 
 # ---------------------------------------------------------------------------
-# System prompt for prompt caching (>1024 tokens for Opus cache minimum)
+# System prompt for prompt caching.
+# Cache minimums: Opus 4.x = 4096 tokens, Sonnet 4.5 = 1024, Sonnet 4.6 = 2048.
+# After we append rotated outstanding-headline exemplars, the prompt clears
+# all thresholds and final-round Opus calls start hitting cache.
 # ---------------------------------------------------------------------------
 TOURNAMENT_SYSTEM_PROMPT = """You are a veteran comedy editor judging satirical news headlines in the style of The Onion and SimCity 2000's newspaper ticker. Your job is to rank headlines from best to worst based on craft and humor. You have decades of experience in satirical journalism and know exactly what separates a headline that gets a polite chuckle from one that makes coffee come out of someone's nose.
 
-JUDGING CRITERIA (in order of importance):
+JUDGING CRITERIA:
 
-1. WORDPLAY & CRAFT
+1. SELF-CONTAINED HUMOR (HARD GATE)
+   - Imagine a stranger who has not seen today's news. Reading only the headline, do they laugh?
+   - If the joke depends on knowing the specific original news story being parodied, rank it last.
+   - The humor must live entirely inside the headline as written. No outside context.
+   - "I see what they did there" is not the same as "that's funny." Reward the second, not the first.
+
+2. WORDPLAY & CRAFT
    - Clever alliteration or assonance that flows naturally when read aloud
    - Puns that actually work phonetically, not just visually — say it out loud in your head
    - Unexpected double meanings or semantic twists that reward a second reading
@@ -63,25 +72,18 @@ JUDGING CRITERIA (in order of importance):
    - Tight editing: every word earns its place, no filler words, no wasted syllables
    - The best headlines have multiple layers — a surface reading AND a hidden meaning
 
-2. COMEDIC IMPACT
+3. COMEDIC IMPACT
    - Does it get a genuine laugh or just a smirk? Rank laughs higher.
    - Surprise factor: does the punchline land where you don't expect it?
    - Dark humor over light — headlines that highlight the absurd nature of the world score higher
    - Satire that cuts: the best headlines make you laugh AND think about something real
    - SimCity 2000 energy: slightly unhinged civic announcements, zany but sharp
-   - The "forwarding test": would someone text this to a friend? That's the bar.
-
-3. RELATIONSHIP TO SOURCE MATERIAL
-   - How cleverly does the satirical headline play off the original news headline?
-   - Does the satire punch up (at power, institutions, absurdity) rather than down?
-   - Is the comedic angle fresh and surprising, or is it the obvious first joke anyone would make?
-   - Does it transform the original meaning in a way that reveals something true?
-   - A great satirical headline makes you see the original story differently.
+   - Deadpan institutional framing applied to absurd subjects — financial agencies downgrading sports teams to junk status, missing-persons alerts for star players, international courts ruling on overtime, scientific announcements about coaches' tantrums. The mismatch between bureaucratic voice and ridiculous content is the SimCity 2000 sweet spot.
+   - The "forwarding test": would someone text this to a friend without having to caption it "for context, X happened today"? That's the bar.
 
 4. HEADLINE QUALITY
    - Would this work as an actual newspaper headline? Proper headline grammar matters.
-   - Is it self-contained? No context should be needed beyond the headline itself.
-   - Conciseness: shorter headlines that pack the same punch always beat longer ones.
+   - Conciseness matters, but density wins over brevity — a long headline that earns every word beats a short one that doesn't.
    - Does it sound like something a real (if slightly unhinged) editor would greenlight?
 
 EXAMPLES OF GREAT HEADLINES (calibrate your taste to this level):
@@ -95,16 +97,21 @@ EXAMPLES OF GREAT HEADLINES (calibrate your taste to this level):
 - "Republicans Vow to Can the Jokes Following Death of Rep. Bean"
   Why it works: "Can the jokes" reads straight (stop joking) until the penny drops (canning beans). The double meaning is seamless — you can read it twice and both meanings work.
 
-- "ICE to See You: Trump's Immigration Agents Give Ex-Marine Cold Homecoming"
-  Why it works: Pop culture reference (Schwarzenegger's Terminator line) plus sustained cold/ice metaphor. "ICE" is literal (the agency) AND figurative (cold). Every single word pulls double duty.
+- '"Grow Up," Screams Man Paid $6M to Watch Other Men Play Basketball'
+  Why it works: Pure self-contained absurdism. The comedy lives entirely inside the gap between the demand for maturity and the surreal economics of the speaker's job. You don't need to know who said it, when, or why — the headline is a complete joke. Transferable across any context where it might appear.
+
+- 'MISSING: Kevin Durant, 6\'10", last seen in Houston. Lakers defeat search party 112-108'
+  Why it works: Format-borrowing — the headline wears the conventions of a missing-persons flyer (height, last-seen location) and a sports box score in the same breath. The deadpan-realism details ("6'10\"") sell the format; the pivot ("defeat search party") is the punchline that reframes the opponent as failed searchers. Self-contained without knowing who Durant is, that Houston is the Rockets, or what the score was — the headline supplies everything it needs.
 
 - "Local Woman Achieves Elite Frequent Flyer Status Through Emotional Avoidance"
   Why it works: Mundane achievement framing applied to a dark emotional truth. Reads like a lifestyle section piece, hits like a therapy session. Completely self-contained — no news story needed.
 
 EXAMPLES OF MEDIOCRE HEADLINES (things that should rank lower):
+- Headlines whose joke depends on knowing the specific news story being parodied — if you stripped away the source story, would this still be funny? If not, rank it down.
+- "Inside-baseball" satire that requires being deep in the news cycle to land
 - Puns that only work visually on the page, not when spoken aloud — always say it in your head
 - Simply making the original headline "wacky" or "random" without a real comedic angle or point
-- Overly long headlines that meander before getting to the punchline — tighter is better
+- Meandering headlines that bury the punchline beneath setup — earned length is fine, padding is not
 - Obvious first-draft jokes that anyone would think of within 5 seconds of reading the original
 - Headlines that are mean-spirited or punch down rather than satirically pointing at absurdity
 - Headlines that just add "Area Man" or "Report Finds" without earning the Onion-style framing
@@ -112,6 +119,42 @@ EXAMPLES OF MEDIOCRE HEADLINES (things that should rank lower):
 RESPONSE FORMAT:
 Reply with ALL letters in order from best to worst, separated by commas (e.g., "D, A, F, B, C, E").
 Each letter MUST appear exactly once. Do not skip any letters."""
+
+
+EXEMPLAR_CACHE_KEY = {'YearMonthDay': 'META', 'HeadlineId': 'outstanding_exemplars'}
+
+
+def _fetch_outstanding_exemplars() -> str:
+    """
+    Pull cached outstanding-graded headlines from DDB to append to the system prompt.
+
+    Reads a single item (META/outstanding_exemplars) maintained by the curation CLI.
+    Runs once at module load; the result becomes part of a stable cached prompt for
+    the lifetime of this Lambda warm period.
+    """
+    try:
+        resp = _headlines_table.get_item(Key=EXEMPLAR_CACHE_KEY)
+        item = resp.get('Item') or {}
+        headlines = item.get('Headlines') or []
+        if not headlines:
+            return ''
+        lines = [
+            '',
+            'ADDITIONAL EXEMPLARS (recent headlines marked outstanding by the editor):',
+            '',
+        ]
+        for h in headlines:
+            lines.append(f'- "{h.get("Headline", "")}"')
+            if h.get('Rationale'):
+                lines.append(f'  Why it works: {h["Rationale"]}')
+        return '\n'.join(lines)
+    except Exception as e:
+        print(f"[tournament] Failed to load outstanding exemplars: {e}")
+        return ''
+
+
+TOURNAMENT_SYSTEM_PROMPT = TOURNAMENT_SYSTEM_PROMPT + _fetch_outstanding_exemplars()
+print(f"[tournament] System prompt length: {len(TOURNAMENT_SYSTEM_PROMPT)} chars")
 
 
 @observe()
@@ -268,7 +311,7 @@ def is_final_run(today: str, batch_num: int) -> bool:
 # Tournament ranking
 # ---------------------------------------------------------------------------
 
-def run_tournament(candidates: list) -> dict:
+def run_tournament(candidates: list, cross_day: bool = False) -> dict:
     """
     Run batch ranking tournament. Returns dict: {rank_str: [headline_ids]}.
 
@@ -276,6 +319,9 @@ def run_tournament(candidates: list) -> dict:
       Divide into groups of ~15, rank each group, top 3 advance.
     Final round (<=20 remain):
       Rank all in one call -> explicit 1-through-N ordering.
+
+    If cross_day=True, the original news headline is hidden from the judge entirely
+    (cross-day readers are far from the news, so headlines must stand alone).
     """
     random.shuffle(candidates)
     remaining = candidates.copy()
@@ -293,7 +339,7 @@ def run_tournament(candidates: list) -> dict:
 
         with ThreadPoolExecutor(max_workers=min(50, num_groups)) as executor:
             futures = {
-                executor.submit(rank_group, group, round_num, len(remaining), MODEL_ELIMINATION): i
+                executor.submit(rank_group, group, round_num, len(remaining), MODEL_ELIMINATION, cross_day): i
                 for i, group in enumerate(groups)
             }
 
@@ -315,7 +361,7 @@ def run_tournament(candidates: list) -> dict:
 
     # Final round
     print(f"--- Final round ({len(remaining)} headlines) ---")
-    final_ordered, explanation = rank_group(remaining, round_num, len(remaining), MODEL_FINAL)
+    final_ordered, explanation = rank_group(remaining, round_num, len(remaining), MODEL_FINAL, cross_day)
 
     headlines_by_rank = {}
     current_rank = 1
@@ -350,17 +396,23 @@ def distribute_into_groups(items: list, num_groups: int) -> list:
     return groups
 
 
-def rank_group(group: list, round_num: int, remaining: int, model: str = MODEL_FINAL) -> tuple:
+def rank_group(group: list, round_num: int, remaining: int, model: str = MODEL_FINAL, cross_day: bool = False) -> tuple:
     """
     Ask the model to rank a group of headlines from best to worst.
     Returns (ordered_headlines, explanation).
+
+    If cross_day=True, the original news headline is hidden from the judge entirely.
     """
     labels = [chr(ord('A') + i) for i in range(len(group))]
 
     headline_lines = []
     for label, h in zip(labels, group):
         headline_lines.append(f'{label}: "{h["headline"]}"')
-        headline_lines.append(f'  Original: "{h["original_headline"]}"')
+        if not cross_day:
+            headline_lines.append(
+                f'  (Source story for reference only — judge whether the satirical '
+                f'headline alone is funny to someone who never saw this: "{h["original_headline"]}")'
+            )
 
     headline_block = '\n'.join(headline_lines)
 
@@ -588,7 +640,7 @@ def run_cross_day_tournament(today: str, today_survivors: list):
     # Clear stale CrossDayRank from all 3 days before writing new ranks
     clear_cross_day_ranks([today, yesterday, day_before])
 
-    ranked = run_tournament(pool)
+    ranked = run_tournament(pool, cross_day=True)
     update_cross_day_ranks(ranked, hid_to_day)
     print(f"Cross-day tournament complete: {len(ranked)} ranks assigned")
 
