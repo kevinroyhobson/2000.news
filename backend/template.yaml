@@ -79,27 +79,27 @@ Resources:
       Runtime: python3.13
       MemorySize: 1024
       Events:
-        # 4x/day: 8am, 2pm, 6pm, 11pm ET (UTC: 13, 19, 23, 04)
-        FetchMorning:
-          Type: Schedule
+        # 4x/day: 7am, 12pm, 4pm, 10pm America/New_York (DST-aware)
+        FetchMorningV2:
+          Type: ScheduleV2
           Properties:
-            Schedule: cron(0 13 * * ? *)
-            Enabled: True
-        FetchMidday:
-          Type: Schedule
+            ScheduleExpression: cron(0 7 * * ? *)
+            ScheduleExpressionTimezone: America/New_York
+        FetchMiddayV2:
+          Type: ScheduleV2
           Properties:
-            Schedule: cron(0 19 * * ? *)
-            Enabled: True
-        FetchAfternoon:
-          Type: Schedule
+            ScheduleExpression: cron(0 12 * * ? *)
+            ScheduleExpressionTimezone: America/New_York
+        FetchAfternoonV2:
+          Type: ScheduleV2
           Properties:
-            Schedule: cron(0 23 * * ? *)
-            Enabled: True
-        FetchEvening:
-          Type: Schedule
+            ScheduleExpression: cron(0 16 * * ? *)
+            ScheduleExpressionTimezone: America/New_York
+        FetchEveningV2:
+          Type: ScheduleV2
           Properties:
-            Schedule: cron(0 4 * * ? *)
-            Enabled: True
+            ScheduleExpression: cron(0 22 * * ? *)
+            ScheduleExpressionTimezone: America/New_York
 
       Policies:
         - DynamoDBCrudPolicy:
