@@ -6,3 +6,6 @@ backend/venv/*
 frontend/build/*
 frontend/node_modules/*
 .previous-deploy
+
+# personal grading datasets — kept locally, not committed
+backend/Scratch/grades.jsonl
