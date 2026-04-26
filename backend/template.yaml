@@ -153,6 +153,7 @@ Resources:
           TOURNAMENT_MODEL_FINAL: claude-opus-4-7
           TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-4-6
           TOURNAMENT_VERBOSE: "false"
+          TOURNAMENT_POLISH: "true"
       Events:
         HeadlineStream:
           Type: DynamoDB

@@ -595,14 +595,25 @@ def polish_top_headlines(today: str, survivors: list):
     with ThreadPoolExecutor(max_workers=16) as executor:
         futures = {}
         for h in to_polish:
-            prompt = f"""Comedy headline editor. Punch up this satirical headline — make it funnier, tighter, or cleverer. Keep the same angle and meaning.
+            prompt = f"""Comedy headline editor reviewing one of our top satirical headlines. Decide whether to leave it alone or rewrite it.
 
+DEFAULT: return the headline UNCHANGED. Most headlines at this tier are already good and should not be touched.
+
+Only rewrite IF you can produce a materially funnier version — sharper wordplay, tighter rhythm, or a stronger punchline. A rewrite that's "different but equally good" is NOT an improvement; return unchanged.
+
+When you DO rewrite, follow these rules:
+- Preserve the existing comic device. If the headline uses format-borrowing (corporate launch, fraud alert, missing-persons flyer, court ruling, etc.), keep that exact framing.
+- Do NOT add explanatory clauses or attribution tags ("Administration Confirms…", "Nobody Else Wanted Either", "Officials Say"). Punchlines are stronger when implicit.
+- Do NOT make the headline longer. Tighter wins.
+- Do NOT paraphrase the same joke in different words. Either land a sharper joke or leave it alone.
+
+CONTEXT (do not let this push you to rewrite unnecessarily):
 Original news: "{h['original_headline']}"
 Satirical version: "{h['headline']}"
 Angle: {h.get('angle', '')}
 
-Reply with ONLY the improved headline. If already perfect, return it unchanged."""
-            futures[executor.submit(call_tournament_model, prompt, max_tokens=100)] = h
+OUTPUT: Reply with ONLY the headline — either unchanged, or your rewrite. No explanation, no preamble."""
+            futures[executor.submit(call_tournament_model, prompt, max_tokens=200)] = h
 
         for future in as_completed(futures):
             h = futures[future]
