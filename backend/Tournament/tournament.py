@@ -35,6 +35,10 @@ langfuse = get_client()
 
 SURVIVOR_COUNT = 64
 VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
+# Polish phase (16 Opus calls per final run) was making winning headlines worse
+# in observed cases — adding flat clauses, weakening punchlines. Off by default;
+# flip env to "true" to re-enable for A/B comparison.
+POLISH_ENABLED = os.getenv("TOURNAMENT_POLISH", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-7")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-4-5-20250929")
 
@@ -204,11 +208,13 @@ def tournament(event, context):
         # Cross-day tournament runs every batch to keep rankings fresh
         run_cross_day_tournament(today, survivors)
 
-        # Final run only: polish top 16 headlines
+        # Final run only: polish top 16 headlines (off by default — see POLISH_ENABLED)
         final_run = is_final_run(today, batch_num)
-        if final_run:
+        if final_run and POLISH_ENABLED:
             print("Final run of the day — polishing top 16")
             polish_top_headlines(today, survivors[:16])
+        elif final_run:
+            print("Final run of the day — polish phase disabled (TOURNAMENT_POLISH != true)")
 
         return (f"Tournament batch #{batch_num} for {today}: "
                 f"{len(candidates)} candidates, {len(survivors)} survivors"
@@ -420,22 +426,32 @@ def rank_group(group: list, round_num: int, remaining: int, model: str = MODEL_F
     if VERBOSE:
         if is_late:
             explanation_instruction = (
-                "\nThen on a new line, explain your reasoning — what made the top picks "
-                "stand out and what held others back (3-5 sentences)."
+                "\n\nAfter the ranking line, on a new line, explain your reasoning — "
+                "what made the top picks stand out and what held others back (3-5 sentences)."
             )
         else:
             explanation_instruction = (
-                "\nThen on a new line, briefly note what made your top pick stand out (1 sentence)."
+                "\n\nAfter the ranking line, on a new line, briefly note what made "
+                "your top pick stand out (1 sentence)."
             )
-        max_tokens = 400 if is_late else 200
+        max_tokens = 600 if is_late else 400
     else:
         explanation_instruction = ""
-        max_tokens = 150 if is_late else 100
+        # Headroom in case the model insists on writing preamble before the answer —
+        # parser handles preamble fine but only if the answer line isn't truncated.
+        max_tokens = 500 if is_late else 300
 
+    valid_max = chr(ord('A') + len(group) - 1)
     prompt = f"""Rank these satirical headlines from best to worst.
-Reply ONLY with the letters separated by commas (e.g. "D, A, F, B, C, E"). No preamble.
 
-{headline_block}{explanation_instruction}"""
+{headline_block}
+
+OUTPUT FORMAT (strict):
+- First line of your response is the ranking: the letters A through {valid_max} in ranked order, comma-separated. Nothing else on that line.
+- Correct: D, A, F, B, C, E
+- Incorrect: "Looking at each headline carefully: D, A, F, B, C, E"
+- Incorrect: "Here is my ranking: D, A, F, B, C, E"
+- Do NOT add preamble. Do NOT explain unless explicitly asked below. Start your response with a letter.{explanation_instruction}"""
 
     response_text = call_tournament_model(
         prompt, max_tokens=max_tokens,
@@ -444,7 +460,6 @@ Reply ONLY with the letters separated by commas (e.g. "D, A, F, B, C, E"). No pr
 
     # Parse: find the line with comma-separated letters (model often prefixes with preamble)
     lines = response_text.strip().split('\n')
-    valid_max = chr(ord('A') + len(group) - 1)
 
     ranking_line = ''
     valid = []
