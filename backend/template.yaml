@@ -150,8 +150,8 @@ Resources:
       Environment:
         Variables:
           TOURNAMENT_PROVIDER: anthropic
-          TOURNAMENT_MODEL_FINAL: claude-opus-4-6
-          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-4-5-20250929
+          TOURNAMENT_MODEL_FINAL: claude-opus-4-7
+          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-4-6
           TOURNAMENT_VERBOSE: "false"
       Events:
         HeadlineStream:
