@@ -178,15 +178,25 @@ def subvert(event, context):
         langfuse.flush()
 
 
+# A/B test: Stage 2 (headline generation) randomized 50/50 per story between
+# Haiku 4.5 and Sonnet 4.6 to evaluate whether Sonnet produces more varied,
+# higher-quality headlines per angle. The chosen model is recorded on each
+# saved headline as GenerateModel for later analysis.
+STAGE_2_AB_MODELS = ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"]
+
+
 @observe()
 def process_story(story):
     """Process a single story - compute subverted titles and save to SubvertedHeadlines."""
     print(f"Starting: {story['Title']}")
     entity_hints = _collect_entity_hints(story)
+    stage_2_model = random.choice(STAGE_2_AB_MODELS)
+    print(f"[A/B] Stage 2 model: {stage_2_model}")
     headlines = compute_subverted_titles(
         story["Title"],
         story.get("Description", ""),
         entity_hints,
+        stage_2_model=stage_2_model,
     )
     save_headlines(story, headlines)
     return {"headline_count": len(headlines)}
@@ -223,7 +233,7 @@ def _collect_entity_hints(story: dict) -> list:
     return out
 
 
-def compute_subverted_titles(title: str, subtitle: str, entity_hints: list = None):
+def compute_subverted_titles(title: str, subtitle: str, entity_hints: list = None, stage_2_model: str = None):
     """
     Two-stage pipeline:
     1. Brainstorm: Analyze the headline and generate comedic angles + context
@@ -235,7 +245,7 @@ def compute_subverted_titles(title: str, subtitle: str, entity_hints: list = Non
     print(f"Generated {len(angles)} angles: {[a['angle_name'] for a in angles]}")
 
     print(f"=== STAGE 2: GENERATE ===")
-    headlines = stage_2_generate(title, subtitle, angles)
+    headlines = stage_2_generate(title, subtitle, angles, model_override=stage_2_model)
     print(f"Generated {len(headlines)} headlines")
 
     return [format_headline(h) for h in headlines]
@@ -260,6 +270,7 @@ CONTEXT: "{subtitle}"{entity_line}
 Random words for absurdist friction: {', '.join(random_words)}
 Aim to work 2–3 of these in across your angles. Awkward or forced fits are often funnier than natural ones — the juxtaposition is part of the joke. Don't let them swamp the real story.{few_shot}"""
 
+    brainstorm_model = get_stage_config("brainstorm")["model"]
     response_text = call_model("brainstorm", prompt, system_prompt=BRAINSTORM_SYSTEM_PROMPT)
     angles = parse_json_response(response_text)
 
@@ -271,15 +282,19 @@ Aim to work 2–3 of these in across your angles. Awkward or forced fits are oft
             {"angle_name": "absurd", "setup": "Go weird", "keywords": []},
         ]
 
-    return angles[:5]  # Cap at 5 angles
+    angles = angles[:5]  # Cap at 5 angles
+    for a in angles:
+        a["brainstorm_model"] = brainstorm_model
+    return angles
 
 
 @observe()
-def stage_2_generate(title: str, subtitle: str, angles: list) -> list:
+def stage_2_generate(title: str, subtitle: str, angles: list, model_override: str = None) -> list:
     """
     Generate polished headlines for each comedic angle.
     """
     all_headlines = []
+    effective_model = model_override or get_stage_config("generate")["model"]
 
     for angle in angles:
         prompt = f"""Write 3-4 funny headlines based on this angle.
@@ -301,7 +316,7 @@ Style guide:
 Return as JSON array:
 [{{"headline": "..."}}]"""
 
-        response_text = call_model("generate", prompt)
+        response_text = call_model("generate", prompt, model_override=model_override)
         parsed = parse_json_response(response_text)
 
         for h in parsed:
@@ -310,6 +325,8 @@ Return as JSON array:
                     "headline": h["headline"],
                     "angle": angle["angle_name"],
                     "setup": angle["setup"],
+                    "brainstorm_model": angle.get("brainstorm_model", ""),
+                    "generate_model": effective_model,
                 })
 
     print(f"All generated headlines:")
@@ -325,6 +342,8 @@ def format_headline(headline: dict) -> dict:
         "SubvertedTitle": headline["headline"],
         "Angle": headline.get("angle", "unknown"),
         "AngleSetup": headline.get("setup", ""),
+        "BrainstormModel": headline.get("brainstorm_model", ""),
+        "GenerateModel": headline.get("generate_model", ""),
         "SubvertedTitleId": "".join(
             random.choices(string.ascii_lowercase + string.digits, k=5)
         ),
@@ -332,13 +351,13 @@ def format_headline(headline: dict) -> dict:
 
 
 @observe(as_type="generation")
-def call_model(stage: str, prompt: str, system_prompt: str = None) -> str:
+def call_model(stage: str, prompt: str, system_prompt: str = None, model_override: str = None) -> str:
     """
     Unified model calling interface. Routes to the configured provider/model for each stage.
     """
     config = get_stage_config(stage)
     provider = config["provider"]
-    model = config["model"]
+    model = model_override or config["model"]
 
     print(f"[{stage}] Calling {provider}/{model}")
 
@@ -461,6 +480,8 @@ def save_headlines(story: dict, headlines: list):
                 "Headline": headline["SubvertedTitle"],
                 "Angle": headline.get("Angle", ""),
                 "AngleSetup": headline.get("AngleSetup", ""),
+                "BrainstormModel": headline.get("BrainstormModel", ""),
+                "GenerateModel": headline.get("GenerateModel", ""),
                 "StoryId": story_id,
                 "OriginalHeadline": original_headline,
             }
