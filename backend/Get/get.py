@@ -18,6 +18,20 @@ _words_table = _dynamo_resource.Table('Words')
 _words_cache = {}
 
 
+# Curation grades from the editor: outstanding/solid/meh/bad. Ungraded items
+# stay tier 2 (between curated-good and curated-bad). meh/bad never serve.
+_GRADE_TIERS = {'outstanding': 0, 'solid': 1}
+_FILTERED_GRADES = {'meh', 'bad'}
+
+
+def _grade_tier(h):
+    return _GRADE_TIERS.get(h.get('Grade'), 2)
+
+
+def _is_filtered_grade(h):
+    return h.get('Grade') in _FILTERED_GRADES
+
+
 def get(event, context):
     logger.info("Begin get")
     logger.info(event)
@@ -129,13 +143,14 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     def get_rank(h):
         return h.get(rank_field) or (max_rank + 1)
 
-    # Sort by rank
-    sorted_headlines = sorted(headlines, key=get_rank)
+    # Sort outstanding > solid > ungraded, then by rank within each tier.
+    sorted_headlines = sorted(headlines, key=lambda h: (_grade_tier(h), get_rank(h)))
 
     result = []
     picked_story_ids = set()
 
-    # If a specific headline is requested, put it first
+    # Direct-link path: serve the requested headline regardless of grade
+    # (so a meh/bad URL still resolves; user explicitly asked for that).
     if requested_headline_id:
         for h in sorted_headlines:
             if h['HeadlineId'] == requested_headline_id:
@@ -146,7 +161,9 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     # If no requested headline and no search query, pick highest-ranked unseen headline for #1
     if not result and not search_query:
         for h in sorted_headlines:
-            if h['HeadlineId'] not in seen_as_top and h['StoryId'] not in picked_story_ids:
+            if (h['HeadlineId'] not in seen_as_top
+                    and h['StoryId'] not in picked_story_ids
+                    and not _is_filtered_grade(h)):
                 result.append(h)
                 picked_story_ids.add(h['StoryId'])
                 break
@@ -157,7 +174,9 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
         query_lower = search_query.lower()
         matching = [
             h for h in sorted_headlines
-            if h['StoryId'] not in picked_story_ids and (
+            if h['StoryId'] not in picked_story_ids
+            and not _is_filtered_grade(h)
+            and (
                 query_lower in h.get('Headline', '').lower() or
                 query_lower in h.get('OriginalHeadline', '').lower()
             )
@@ -179,6 +198,7 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
         pool = [
             h for h in sorted_headlines[:pool_size]
             if h['StoryId'] not in picked_story_ids
+            and not _is_filtered_grade(h)
         ]
         if pool:
             pick = random.choice(pool)
@@ -189,7 +209,8 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     for h in sorted_headlines:
         if len(result) >= 4:
             break
-        if h['StoryId'] not in picked_story_ids:
+        if (h['StoryId'] not in picked_story_ids
+                and not _is_filtered_grade(h)):
             result.append(h)
             picked_story_ids.add(h['StoryId'])
 
@@ -223,9 +244,18 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
     for h in selected_headlines:
         story = story_lookup.get((h['YearMonthDay'], h['StoryId']), {})
 
-        # Get sibling headlines
-        siblings = [s for s in all_headlines if s['YearMonthDay'] == h['YearMonthDay'] and s['StoryId'] == h['StoryId']]
-        siblings = to_headline_list(siblings)
+        # Sibling headlines: drop meh/bad (always keep the currently-served
+        # headline itself, in case it was direct-linked and is filtered).
+        # Order outstanding > solid > ungraded, then by rank.
+        sibling_pool = [
+            s for s in all_headlines
+            if s['YearMonthDay'] == h['YearMonthDay']
+            and s['StoryId'] == h['StoryId']
+            and (s['HeadlineId'] == h['HeadlineId'] or not _is_filtered_grade(s))
+        ]
+        sib_max_rank = max((s.get('Rank') or 0 for s in sibling_pool), default=0)
+        sibling_pool.sort(key=lambda s: (_grade_tier(s), s.get('Rank') or (sib_max_rank + 1)))
+        siblings = to_headline_list(sibling_pool)
 
         # Don't show original if this headline was specifically requested via URL
         show_original = False if h['HeadlineId'] == requested_headline_id else random.random() < 0.25
@@ -271,9 +301,13 @@ def to_headline_list(headlines, rank_field='Rank'):
 
 
 def get_top_headlines(headlines, limit=64, rank_field='Rank'):
-    """Get the top headlines by rank."""
-    max_rank = max((h.get(rank_field) or 0 for h in headlines), default=0)
-    sorted_h = sorted(headlines, key=lambda h: h.get(rank_field) or (max_rank + 1))
+    """Get the top headlines by rank, curated good ones first, meh/bad filtered."""
+    visible = [h for h in headlines if not _is_filtered_grade(h)]
+    max_rank = max((h.get(rank_field) or 0 for h in visible), default=0)
+    sorted_h = sorted(
+        visible,
+        key=lambda h: (_grade_tier(h), h.get(rank_field) or (max_rank + 1)),
+    )
     return to_headline_list(sorted_h[:limit], rank_field=rank_field)
 
 
