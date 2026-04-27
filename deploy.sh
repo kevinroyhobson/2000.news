@@ -11,7 +11,7 @@ TARGET="${1:-all}"
 deploy_backend() {
     echo "=== Deploying backend ==="
     cd backend
-    sam build
+    sam build --use-container
     sam deploy --stack-name news-2000 --region "$AWS_REGION"
     cd ..
 }

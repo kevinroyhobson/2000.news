@@ -76,7 +76,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Fetch/fetch.fetch
-      Runtime: python3.13
+      Runtime: python3.14
       MemorySize: 1024
       Events:
         # 4x/day: 7am, 12pm, 4pm, 10pm America/New_York (DST-aware)
@@ -111,7 +111,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Subvert/subvert.subvert
-      Runtime: python3.13
+      Runtime: python3.14
       MemorySize: 1024
       Timeout: 120
       Environment:
@@ -143,7 +143,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Tournament/tournament.tournament
-      Runtime: python3.13
+      Runtime: python3.14
       MemorySize: 1024
       Timeout: 900
       ReservedConcurrentExecutions: 1
@@ -176,7 +176,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Get/get.get
-      Runtime: python3.13
+      Runtime: python3.14
       MemorySize: 1024
       Events:
         GetStoriesForTodayApiEvent:
