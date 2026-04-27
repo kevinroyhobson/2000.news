@@ -623,10 +623,11 @@ OUTPUT: Reply with ONLY the headline — either unchanged, or your rewrite. No e
                     print(f"  Polished: {h['headline'][:40]}... -> {improved[:40]}...")
                     _headlines_table.update_item(
                         Key={'YearMonthDay': h['year_month_day'], 'HeadlineId': h['headline_id']},
-                        UpdateExpression='SET Headline = :new, OriginalSubverted = :orig',
+                        UpdateExpression='SET Headline = :new, OriginalSubverted = :orig, PolishModel = :pm',
                         ExpressionAttributeValues={
                             ':new': improved,
                             ':orig': h['headline'],
+                            ':pm': MODEL_FINAL,
                         },
                     )
                 else:
