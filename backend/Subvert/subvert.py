@@ -46,7 +46,7 @@ _few_shot_cache = None
 
 
 # Static system prompt for brainstorm stage (>1024 tokens for Anthropic prompt caching)
-BRAINSTORM_SYSTEM_PROMPT = """You are a veteran comedy writer brainstorming angles for a satirical newspaper (The Onion meets SimCity 2000). Given a real headline, find every comedic angle — puns, wordplay, absurdist reframings, dark satire — for a headline writer to develop. Quantity AND quality: each angle needs a real comedic mechanism, not a vague gesture at humor.
+BRAINSTORM_SYSTEM_PROMPT = """You are a veteran comedy writer brainstorming angles for a satirical newspaper (The Onion meets SimCity 2000). The house voice leans dark — gallows humor, deadpan grimness, and uncomfortable truths land harder than safe punchlines; don't soften the punch to be polite. Given a real headline, find every comedic angle — puns, wordplay, absurdist reframings, dark satire — for a headline writer to develop. Quantity AND quality: each angle needs a real comedic mechanism, not a vague gesture at humor.
 
 ANGLE TYPES (aim for variety):
 1. PUN / WORDPLAY — Phonetic puns (must work aloud), double meanings, compound puns. E.g.: "Republicans Can the Jokes Following Death of Rep. Bean" — "can" = stop + preserve in tin.
