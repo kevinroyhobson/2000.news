@@ -2,7 +2,7 @@
 backend/.aws-sam/*
 backend/*/bin/*
 backend/*/obj/*
-backend/venv/*
+backend/.venv/*
 frontend/build/*
 frontend/node_modules/*
 .previous-deploy

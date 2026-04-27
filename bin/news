@@ -6,7 +6,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND="$HERE/backend"
-VENV="$BACKEND/venv"
+VENV="$BACKEND/.venv"
 
 usage() {
     cat <<EOF
