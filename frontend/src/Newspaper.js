@@ -1,6 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {useRecoilState} from 'recoil';
-import ReactGA from 'react-ga';
+import ReactGA from 'react-ga4';
 import {DateTime} from 'luxon';
 import axios from 'axios';
 import classNames from 'classnames';
@@ -12,7 +11,7 @@ import './Newspaper.css'
 import Story from './Story';
 import StoryDetail from './StoryDetail';
 import StoryDetailBackingPanels from './StoryDetailBackingPanels';
-import isDebugModeState from './state/isDebugModeState';
+import {useDebugMode} from './state/DebugModeContext';
 import getStoryTitleDisplay from './getStoryTitleDisplay';
 
 
@@ -47,7 +46,7 @@ export default function Newspaper() {
   const [stories, setStories] = useState([]);
   const [selectedStory, setSelectedStory] = useState(null);
   const [selectedStoryClickLocation, setSelectedStoryClickLocation] = useState(null);
-  const [isDebugMode, setIsDebugMode] = useRecoilState(isDebugModeState);
+  const [isDebugMode, setIsDebugMode] = useDebugMode();
   const [topHeadlines, setTopHeadlines] = useState([]);
   const [showTopHeadlines, setShowTopHeadlines] = useState(false);
   const [topHeadlinesClickLocation, setTopHeadlinesClickLocation] = useState(null);

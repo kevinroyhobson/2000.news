@@ -3,8 +3,7 @@ import React from 'react';
 import Box from '@mui/material/Box';
 
 import StoryDetailBackingPanels from "./StoryDetailBackingPanels";
-import {useRecoilValue} from "recoil";
-import isDebugModeState from "./state/isDebugModeState";
+import {useDebugMode} from "./state/DebugModeContext";
 import getStoryTitleDisplay from "./getStoryTitleDisplay";
 import CopyStoryLink from "./CopyStoryLink";
 
@@ -13,7 +12,7 @@ export default function StoryDetail(props) {
 
   const {story, onClick, clickLocation} = props;
 
-  const isDebugMode = useRecoilValue(isDebugModeState);
+  const [isDebugMode] = useDebugMode();
 
   const siblingHeadlines = (story.SiblingHeadlines || [])
     .slice()

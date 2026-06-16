@@ -2,8 +2,7 @@ import React, {useState, useEffect} from "react";
 import _ from 'lodash';
 
 import Line from './Line';
-import {useRecoilValue} from "recoil";
-import isDebugModeState from "./state/isDebugModeState";
+import {useDebugMode} from "./state/DebugModeContext";
 import getStoryTitleDisplay from "./getStoryTitleDisplay";
 
 
@@ -12,7 +11,7 @@ export default function Story(props) {
   const {story, isHeadline, onClick} = props;
 
   const [lines, setLines] = useState([]);
-  const isDebugMode = useRecoilValue(isDebugModeState);
+  const [isDebugMode] = useDebugMode();
 
   useEffect(() => {
     let isNextLineAStart = true;
