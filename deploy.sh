@@ -11,7 +11,10 @@ TARGET="${1:-all}"
 deploy_backend() {
     echo "=== Deploying backend ==="
     cd backend
-    sam build --use-container
+    # Native build (host is Linux x86_64 + py3.14, matching the Lambda runtime).
+    # Needs python3.14 on PATH — keep the venv active. Use --use-container only
+    # if you ever build off-Linux (e.g. a Mac).
+    sam build
     sam deploy --stack-name news-2000 --region "$AWS_REGION"
     cd ..
 }

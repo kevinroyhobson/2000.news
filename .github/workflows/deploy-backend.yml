@@ -1,0 +1,55 @@
+name: deploy-backend
+
+# Push to main that touches backend/ -> SAM build + deploy the news-2000 stack.
+# Auto-deploys (low-risk site, no approval gate). One-time AWS/GitHub setup is in
+# README / matches the crypto repo's docs/ci-cd.md (OIDC role + AWS_DEPLOY_ROLE_ARN).
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**']
+  workflow_dispatch: {}
+
+# Never run two backend deploys of the same ref at once; don't cancel an
+# in-flight deploy (cancelling mid-CloudFormation is worse than waiting).
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # mint the OIDC token used to assume the AWS deploy role
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.14"   # matches Lambda Runtime in backend/template.yaml
+  AWS_REGION: us-east-2
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      # Native build (no --use-container): the runner and Lambda are both
+      # Linux + x86_64 + Python 3.14, so deps (incl. pydantic-core) resolve to
+      # the same manylinux wheels Lambda uses. Faster, and no Docker/build-image
+      # dependency. setup-python puts python3.14 on PATH for SAM.
+      - name: SAM build
+        working-directory: backend
+        run: sam build
+      - name: SAM deploy
+        working-directory: backend
+        # stack_name / s3_bucket / capabilities come from samconfig.toml;
+        # --no-confirm-changeset replaces the interactive y/N (confirm_changeset=true).
+        run: sam deploy --region "$AWS_REGION" --no-confirm-changeset --no-fail-on-empty-changeset
