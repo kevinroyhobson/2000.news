@@ -29,7 +29,7 @@ from lib.ssm_secrets import get_secret  # noqa: E402
 
 
 REGION = 'us-east-2'
-RATIONALE_MODEL = 'claude-opus-4-7'
+RATIONALE_MODEL = 'claude-opus-4-8'
 RATIONALE_FALLBACK_MODEL = 'claude-sonnet-4-6'
 TABLE_NAME = 'SubvertedHeadlines'
 
@@ -190,7 +190,7 @@ def _build_appendix(headlines: list) -> str:
 def _count_prompt_tokens(client, system_text: str) -> int:
     """Count tokens for a system prompt as Tournament would send it."""
     r = client.messages.count_tokens(
-        model='claude-opus-4-7',
+        model='claude-opus-4-8',
         system=[{'type': 'text', 'text': system_text}],
         messages=[{'role': 'user', 'content': 'placeholder'}],
     )

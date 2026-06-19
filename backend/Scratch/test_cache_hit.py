@@ -61,7 +61,7 @@ client = anthropic.Anthropic(api_key=api_key)
 
 def call(label: str):
     r = client.messages.create(
-        model='claude-opus-4-7',
+        model='claude-opus-4-8',
         max_tokens=50,
         system=[{
             'type': 'text',

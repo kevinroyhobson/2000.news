@@ -39,8 +39,8 @@ VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 # in observed cases — adding flat clauses, weakening punchlines. Off by default;
 # flip env to "true" to re-enable for A/B comparison.
 POLISH_ENABLED = os.getenv("TOURNAMENT_POLISH", "false").lower() == "true"
-MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-7")
-MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-4-5-20250929")
+MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
+MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-4-6")
 
 _anthropic_client = None
 

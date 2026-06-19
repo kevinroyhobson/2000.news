@@ -11,7 +11,7 @@ Globals:
     Cors:
       AllowMethods: "'*'"
       AllowHeaders: "'*'"
-      AllowOrigin: "'www.2000.news'"
+      AllowOrigin: "'https://www.2000.news'"
     Domain:
       DomainName: api.2000.news
       CertificateArn: arn:aws:acm:us-east-2:663940524453:certificate/a9364e96-df7e-4471-8c2b-fd484e557c7b
@@ -117,7 +117,7 @@ Resources:
       Environment:
         Variables:
           BRAINSTORM_PROVIDER: anthropic
-          BRAINSTORM_MODEL: claude-opus-4-6
+          BRAINSTORM_MODEL: claude-opus-4-8
           GENERATE_PROVIDER: anthropic
           GENERATE_MODEL: claude-haiku-4-5-20251001
       Events:
@@ -150,7 +150,7 @@ Resources:
       Environment:
         Variables:
           TOURNAMENT_PROVIDER: anthropic
-          TOURNAMENT_MODEL_FINAL: claude-opus-4-7
+          TOURNAMENT_MODEL_FINAL: claude-opus-4-8
           TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-4-6
           TOURNAMENT_VERBOSE: "false"
           TOURNAMENT_POLISH: "true"

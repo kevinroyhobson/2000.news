@@ -30,14 +30,14 @@ langfuse = get_client()
 #
 # Providers: "anthropic" or "google"
 #
-# Anthropic models: claude-haiku-4-5, claude-sonnet-4-5, claude-opus-4-5
+# Anthropic models: claude-haiku-4-5, claude-sonnet-4-6, claude-opus-4-8
 # Google models: gemini-2.5-flash, gemini-2.5-flash-lite
 #
 # Example .env:
 #   BRAINSTORM_PROVIDER=anthropic
-#   BRAINSTORM_MODEL=claude-opus-4-6
+#   BRAINSTORM_MODEL=claude-opus-4-8
 #   GENERATE_PROVIDER=anthropic
-#   GENERATE_MODEL=claude-haiku-4-5
+#   GENERATE_MODEL=claude-haiku-4-5-20251001
 # =============================================================================
 
 _anthropic_client = None
@@ -62,7 +62,7 @@ QUALITY BAR:
 - Each angle needs a specific mechanism (pun, twist, reference), not just "make it funny"
 - Setup must be concrete enough that a writer knows exactly where to go
 - Puns must work phonetically, not just visually
-- Punch up, not down — satire should be irreverant and afflict the comfortable
+- Punch up, not down — satire should be irreverent and afflict the comfortable
 - Skip obvious first-draft ideas anyone would think of in 5 seconds
 
 RESPONSE FORMAT:
@@ -178,11 +178,12 @@ def subvert(event, context):
         langfuse.flush()
 
 
-# A/B test: Stage 2 (headline generation) randomized 50/50 per story between
-# Haiku 4.5 and Sonnet 4.6 to evaluate whether Sonnet produces more varied,
-# higher-quality headlines per angle. The chosen model is recorded on each
-# saved headline as GenerateModel for later analysis.
-STAGE_2_AB_MODELS = ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"]
+# Stage 2 (headline generation) model A/B: one random.choice per angle, recorded
+# on each headline as GenerateModel. Currently single-model (100% Haiku 4.5) —
+# the Haiku-vs-Sonnet test showed no taste-detectable quality gap at 3x the cost.
+# To A/B again, add model IDs back to this list; the per-angle selection and
+# GenerateModel tagging stay wired up.
+STAGE_2_AB_MODELS = ["claude-haiku-4-5-20251001"]
 
 
 @observe()
@@ -190,13 +191,10 @@ def process_story(story):
     """Process a single story - compute subverted titles and save to SubvertedHeadlines."""
     print(f"Starting: {story['Title']}")
     entity_hints = _collect_entity_hints(story)
-    stage_2_model = random.choice(STAGE_2_AB_MODELS)
-    print(f"[A/B] Stage 2 model: {stage_2_model}")
     headlines = compute_subverted_titles(
         story["Title"],
         story.get("Description", ""),
         entity_hints,
-        stage_2_model=stage_2_model,
     )
     save_headlines(story, headlines)
     return {"headline_count": len(headlines)}
@@ -233,7 +231,7 @@ def _collect_entity_hints(story: dict) -> list:
     return out
 
 
-def compute_subverted_titles(title: str, subtitle: str, entity_hints: list = None, stage_2_model: str = None):
+def compute_subverted_titles(title: str, subtitle: str, entity_hints: list = None):
     """
     Two-stage pipeline:
     1. Brainstorm: Analyze the headline and generate comedic angles + context
@@ -245,7 +243,7 @@ def compute_subverted_titles(title: str, subtitle: str, entity_hints: list = Non
     print(f"Generated {len(angles)} angles: {[a['angle_name'] for a in angles]}")
 
     print(f"=== STAGE 2: GENERATE ===")
-    headlines = stage_2_generate(title, subtitle, angles, model_override=stage_2_model)
+    headlines = stage_2_generate(title, subtitle, angles)
     print(f"Generated {len(headlines)} headlines")
 
     return [format_headline(h) for h in headlines]
@@ -289,14 +287,15 @@ Aim to work 2–3 of these in across your angles. Awkward or forced fits are oft
 
 
 @observe()
-def stage_2_generate(title: str, subtitle: str, angles: list, model_override: str = None) -> list:
+def stage_2_generate(title: str, subtitle: str, angles: list) -> list:
     """
     Generate polished headlines for each comedic angle.
+    A/B: model is randomized per angle (each angle = one API call).
     """
     all_headlines = []
-    effective_model = model_override or get_stage_config("generate")["model"]
 
     for angle in angles:
+        effective_model = random.choice(STAGE_2_AB_MODELS)
         prompt = f"""Write 3-4 funny headlines based on this angle.
 
 ORIGINAL HEADLINE: "{title}"
@@ -316,7 +315,7 @@ Style guide:
 Return as JSON array:
 [{{"headline": "..."}}]"""
 
-        response_text = call_model("generate", prompt, model_override=model_override)
+        response_text = call_model("generate", prompt, model_override=effective_model)
         parsed = parse_json_response(response_text)
 
         for h in parsed:
