@@ -168,7 +168,9 @@ Resources:
           TOURNAMENT_MODEL_FINAL: claude-opus-4-8
           TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-4-6
           TOURNAMENT_VERBOSE: "false"
-          TOURNAMENT_POLISH: "true"
+          # Off after A/B: conservative polish changes ~nothing, aggressive degrades
+          # good headlines, two-pass only nets ~2 wins/16 — not worth the spend/risk.
+          TOURNAMENT_POLISH: "false"
       Events:
         HeadlineStream:
           Type: DynamoDB
