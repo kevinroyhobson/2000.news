@@ -11,7 +11,12 @@ Usage (from backend/ with venv active):
     python3 Scratch/grade_headlines.py --target 150 --days 5
     python3 Scratch/grade_headlines.py --show-sources    # if you want to see originals
 
-Pair distribution is stratified across rank tiers:
+    # Stage-2 A/B taste test: cross-model pairs from tournament survivors only
+    # (same-story served first). Defaults output to grades_ab.jsonl; analyze
+    # with analyze_ab_taste.py. Add --top 16 to grade only the very top.
+    python3 Scratch/grade_headlines.py --ab --target 80 --days 14
+
+Default (non-ab) pair distribution is stratified across rank tiers:
     top (rank 1-16)   mid_high (17-32)   mid_low (33-64)   unranked
 """
 
@@ -26,6 +31,11 @@ from zoneinfo import ZoneInfo
 
 import boto3
 from boto3.dynamodb.conditions import Key
+
+
+# Stage-2 A/B arms (GenerateModel values). Used by --ab pairing.
+HAIKU = "claude-haiku-4-5-20251001"
+SONNET = "claude-sonnet-4-6"
 
 
 def all_query(tbl, **kw):
@@ -115,6 +125,66 @@ def make_pairs(headlines: list, target: int) -> list:
     return pairs
 
 
+def make_ab_pairs(headlines: list, target: int, top_cutoff: int = None) -> list:
+    """Cross-model pairs for the Stage-2 A/B taste test, drawn ONLY from
+    tournament survivors (headlines that kept a Rank) so you grade the funny
+    ones that actually made it through -- not culled meh-vs-meh. Pass
+    top_cutoff to restrict to Rank <= cutoff (the very top) only.
+
+    Same-story pairs (one Haiku vs one Sonnet about the same news) are served
+    first: they control for story difficulty and are the cleanest signal. Then
+    cross-story survivor pairs fill out the target (model is assigned at random,
+    so cross-story among survivors carries no systematic confound)."""
+    def is_survivor(h):
+        r = h.get('Rank')
+        if r is None or h.get('GenerateModel') not in (HAIKU, SONNET):
+            return False
+        return top_cutoff is None or int(r) <= top_cutoff
+
+    pool = [h for h in headlines if is_survivor(h)]
+    haiku = [h for h in pool if h['GenerateModel'] == HAIKU]
+    sonnet = [h for h in pool if h['GenerateModel'] == SONNET]
+
+    pairs = []
+    seen_keys = set()
+
+    def add(a, b):
+        if a['HeadlineId'] == b['HeadlineId']:
+            return
+        key = frozenset({a['HeadlineId'], b['HeadlineId']})
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        pairs.append((a, b))
+
+    # 1) Same-story, both-survived pairs first (cleanest -- controls for story).
+    # Key on (day, story): the A/B model is randomized per angle, so one story
+    # on one day yields a Haiku/Sonnet mix about identical news -- same context,
+    # different model. Don't pair a story's headlines across different days.
+    by_story = defaultdict(lambda: {'haiku': [], 'sonnet': []})
+    for h in pool:
+        sid = h.get('StoryId', '')
+        if sid:
+            key = (h.get('YearMonthDay', ''), sid)
+            by_story[key]['haiku' if h['GenerateModel'] == HAIKU else 'sonnet'].append(h)
+    same = [k for k, g in by_story.items() if g['haiku'] and g['sonnet']]
+    random.shuffle(same)
+    for key in same:
+        if len(pairs) >= target:
+            break
+        g = by_story[key]
+        add(random.choice(g['haiku']), random.choice(g['sonnet']))
+
+    # 2) Fill the rest with cross-story survivor pairs (still cross-model).
+    attempts = 0
+    while len(pairs) < target and haiku and sonnet and attempts < target * 30:
+        attempts += 1
+        add(random.choice(haiku), random.choice(sonnet))
+
+    random.shuffle(pairs)
+    return pairs[:target]
+
+
 def load_existing(path: str) -> set:
     if not os.path.exists(path):
         return set()
@@ -138,6 +208,7 @@ def to_record(h: dict) -> dict:
         'year_month_day': h['YearMonthDay'],
         'headline': h.get('Headline', ''),
         'original_headline': h.get('OriginalHeadline', ''),
+        'generate_model': h.get('GenerateModel', ''),
         'rank': int(h['Rank']) if h.get('Rank') is not None else None,
         'cross_day_rank': int(h['CrossDayRank']) if h.get('CrossDayRank') is not None else None,
         'story_id': h.get('StoryId', ''),
@@ -165,17 +236,30 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--target', type=int, default=150, help='target number of pairs to generate')
     ap.add_argument('--days', type=int, default=5, help='days of headlines to sample from')
-    ap.add_argument('--out', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grades.jsonl'))
+    ap.add_argument('--out', default=None,
+                    help='output JSONL (default: grades_ab.jsonl with --ab, else grades.jsonl)')
+    ap.add_argument('--ab', action='store_true',
+                    help='Stage-2 A/B taste test: cross-model survivor pairs (same-story first)')
+    ap.add_argument('--top', type=int, default=None,
+                    help='[--ab] restrict to survivors with Rank <= TOP (default: all survivors)')
     ap.add_argument('--show-sources', action='store_true',
                     help='show original headlines (default hidden, matching cross-day judging)')
     args = ap.parse_args()
+
+    if args.out is None:
+        here = os.path.dirname(os.path.abspath(__file__))
+        args.out = os.path.join(here, 'grades_ab.jsonl' if args.ab else 'grades.jsonl')
 
     print(f"Loading headlines from last {args.days} days...")
     headlines = fetch_headlines(args.days)
     print(f"Loaded {len(headlines)} headlines.")
 
-    pairs = make_pairs(headlines, args.target)
-    print(f"Generated {len(pairs)} candidate pairs.")
+    if args.ab:
+        pairs = make_ab_pairs(headlines, args.target, args.top)
+        print(f"Generated {len(pairs)} survivor Haiku-vs-Sonnet pairs.")
+    else:
+        pairs = make_pairs(headlines, args.target)
+        print(f"Generated {len(pairs)} candidate pairs.")
 
     seen = load_existing(args.out)
     pairs = [p for p in pairs if frozenset({p[0]['HeadlineId'], p[1]['HeadlineId']}) not in seen]
