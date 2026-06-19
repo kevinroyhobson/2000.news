@@ -72,6 +72,21 @@ Resources:
         StreamViewType: NEW_IMAGE
       BillingMode: PAY_PER_REQUEST
 
+  TelegramSentHeadlines:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: TelegramSentHeadlines
+      AttributeDefinitions:
+        - AttributeName: HeadlineId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: HeadlineId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ExpiresAt
+        Enabled: true
+      BillingMode: PAY_PER_REQUEST
+
   Fetch:
     Type: AWS::Serverless::Function
     Properties:
@@ -201,6 +216,29 @@ Resources:
             TableName: !Ref SubvertedHeadlines
         - DynamoDBCrudPolicy:
             TableName: !Ref Words
+
+  TelegramAlert:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TelegramAlert/telegram_alert.handler
+      Runtime: python3.14
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TELEGRAM_CHAT_ID: "@twothousanddotnews"
+      Events:
+        # Top of every hour, 6am-11pm America/New_York (DST-aware)
+        HourlyV2:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(0 6-23 * * ? *)
+            ScheduleExpressionTimezone: America/New_York
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TelegramSentHeadlines
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
 
 Outputs:
   GetStoriesForTodayApi:
