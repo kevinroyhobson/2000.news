@@ -30,7 +30,7 @@ from lib.ssm_secrets import get_secret  # noqa: E402
 
 REGION = 'us-east-2'
 RATIONALE_MODEL = 'claude-opus-4-8'
-RATIONALE_FALLBACK_MODEL = 'claude-sonnet-4-6'
+RATIONALE_FALLBACK_MODEL = 'claude-sonnet-5'
 TABLE_NAME = 'SubvertedHeadlines'
 
 # A single synthetic item in SubvertedHeadlines holds the materialized top-20
@@ -88,7 +88,13 @@ def _gen_rationale_once(headline: str, original: str, model: str) -> str:
     client = get_anthropic_client()
     msg = client.messages.create(
         model=model,
-        max_tokens=500,
+        # Adaptive thinking on both the Opus 4.8 primary and Sonnet 5 fallback.
+        # The rationale is one sentence, but thinking tokens count against
+        # max_tokens, so this is bumped well above the answer size to leave room
+        # for the think. The text-block filter below already skips the thinking
+        # block.
+        max_tokens=4096,
+        thinking={'type': 'adaptive'},
         system=RATIONALE_SYSTEM,
         messages=[{
             'role': 'user',

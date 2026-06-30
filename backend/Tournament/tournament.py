@@ -40,7 +40,13 @@ VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 # flip env to "true" to re-enable for A/B comparison.
 POLISH_ENABLED = os.getenv("TOURNAMENT_POLISH", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
-MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-4-6")
+MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
+# Adaptive thinking (Sonnet 5 elimination + Opus 4.8 final) emits reasoning
+# tokens before the answer, all counted against max_tokens. Floor every call's
+# budget so a long think can't truncate the ranking line. It's a ceiling, not a
+# target — only tokens actually generated are billed — so headroom is free
+# insurance. Raise via env if a ranking ever truncates mid-think.
+THINKING_MAX_TOKENS_FLOOR = int(os.getenv("TOURNAMENT_MAX_TOKENS_FLOOR", "8000"))
 
 _anthropic_client = None
 
@@ -530,6 +536,7 @@ def call_tournament_model(prompt: str, max_tokens=200,
 def _do_api_call(provider: str, model: str, prompt: str,
                  max_tokens: int = 200) -> tuple:
     """Make the actual API call with retries and prompt caching."""
+    max_tokens = max(max_tokens, THINKING_MAX_TOKENS_FLOOR)
     print(f"[tournament] Calling {provider}/{model} (max_tokens={max_tokens})")
 
     for attempt in range(MAX_RETRIES + 1):
@@ -539,6 +546,12 @@ def _do_api_call(provider: str, model: str, prompt: str,
                 response = client.messages.create(
                     model=model,
                     max_tokens=max_tokens,
+                    # Adaptive thinking on both judges (Sonnet 5 elimination,
+                    # Opus 4.8 final). Effort defaults to high; max_tokens is
+                    # floored above to leave room for the think before the
+                    # ranking line. display defaults to "omitted" — we only read
+                    # the answer text block below, never the reasoning.
+                    thinking={"type": "adaptive"},
                     system=[{
                         "type": "text",
                         "text": TOURNAMENT_SYSTEM_PROMPT,
@@ -546,7 +559,16 @@ def _do_api_call(provider: str, model: str, prompt: str,
                     }],
                     messages=[{"role": "user", "content": prompt}],
                 )
-                text = response.content[0].text
+                # With thinking on, content[0] is a (possibly empty) thinking
+                # block — pull the answer from the first text block instead.
+                text_blocks = [b for b in response.content
+                               if getattr(b, "type", None) == "text"]
+                if not text_blocks:
+                    raise RuntimeError(
+                        f"no text block (stop_reason={response.stop_reason}); "
+                        "likely truncated mid-think — raise TOURNAMENT_MAX_TOKENS_FLOOR"
+                    )
+                text = text_blocks[0].text
                 usage = {
                     "input_tokens": response.usage.input_tokens,
                     "output_tokens": response.usage.output_tokens,
