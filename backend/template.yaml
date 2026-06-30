@@ -166,7 +166,7 @@ Resources:
         Variables:
           TOURNAMENT_PROVIDER: anthropic
           TOURNAMENT_MODEL_FINAL: claude-opus-4-8
-          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-4-6
+          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
           TOURNAMENT_VERBOSE: "false"
           # Off after A/B: conservative polish changes ~nothing, aggressive degrades
           # good headlines, two-pass only nets ~2 wins/16 — not worth the spend/risk.

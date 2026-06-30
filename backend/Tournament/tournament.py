@@ -40,7 +40,7 @@ VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 # flip env to "true" to re-enable for A/B comparison.
 POLISH_ENABLED = os.getenv("TOURNAMENT_POLISH", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
-MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-4-6")
+MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
 
 _anthropic_client = None
 
@@ -539,6 +539,13 @@ def _do_api_call(provider: str, model: str, prompt: str,
                 response = client.messages.create(
                     model=model,
                     max_tokens=max_tokens,
+                    # Sonnet 5 turns on adaptive thinking when `thinking` is
+                    # omitted (Sonnet 4.6 did not). Pin it off to preserve prior
+                    # behavior: keeps the ranking line inside the tight
+                    # elimination max_tokens budget and avoids per-call thinking
+                    # cost/latency on this high-volume path. (Accepted on Opus
+                    # 4.8 too, so the shared final-round call is unaffected.)
+                    thinking={"type": "disabled"},
                     system=[{
                         "type": "text",
                         "text": TOURNAMENT_SYSTEM_PROMPT,

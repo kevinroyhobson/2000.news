@@ -39,7 +39,7 @@ GENERATE_MODEL=claude-haiku-4-5-20251001
 
 **Anthropic:**
 - `claude-haiku-4-5` - Fast, cheap, good at wordplay
-- `claude-sonnet-4-6` - Smarter, more expensive
+- `claude-sonnet-5` - Smarter, more expensive
 - `claude-opus-4-8` - Best, most expensive
 
 **Google:**

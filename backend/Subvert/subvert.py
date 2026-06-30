@@ -30,7 +30,7 @@ langfuse = get_client()
 #
 # Providers: "anthropic" or "google"
 #
-# Anthropic models: claude-haiku-4-5, claude-sonnet-4-6, claude-opus-4-8
+# Anthropic models: claude-haiku-4-5, claude-sonnet-5, claude-opus-4-8
 # Google models: gemini-2.5-flash, gemini-2.5-flash-lite
 #
 # Example .env:
