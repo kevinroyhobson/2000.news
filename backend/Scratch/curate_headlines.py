@@ -88,12 +88,13 @@ def _gen_rationale_once(headline: str, original: str, model: str) -> str:
     client = get_anthropic_client()
     msg = client.messages.create(
         model=model,
-        max_tokens=500,
-        # Sonnet 5 (the fallback model) defaults to adaptive thinking when
-        # `thinking` is omitted; Sonnet 4.6 did not. Pin it off to keep the
-        # prior single-sentence-rationale behavior. (Accepted on the Opus 4.8
-        # primary model too, where it's already the default.)
-        thinking={'type': 'disabled'},
+        # Adaptive thinking on both the Opus 4.8 primary and Sonnet 5 fallback.
+        # The rationale is one sentence, but thinking tokens count against
+        # max_tokens, so this is bumped well above the answer size to leave room
+        # for the think. The text-block filter below already skips the thinking
+        # block.
+        max_tokens=4096,
+        thinking={'type': 'adaptive'},
         system=RATIONALE_SYSTEM,
         messages=[{
             'role': 'user',
