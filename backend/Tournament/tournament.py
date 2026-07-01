@@ -55,6 +55,27 @@ EFFORT_FINAL = os.getenv("TOURNAMENT_FINAL_EFFORT", "high")
 # insurance. Raise via env if a ranking ever truncates mid-think.
 THINKING_MAX_TOKENS_FLOOR = int(os.getenv("TOURNAMENT_MAX_TOKENS_FLOOR", "8000"))
 
+# Final-round ensemble: rank the final group multiple times, each pass led by
+# a different judging lens, and aggregate with a Borda count. Only the top ~16
+# headlines are ever published, so extra deliberation is spent exactly where
+# it matters. Set to 1 to disable (single final ranking, prior behavior).
+FINAL_ENSEMBLE_SIZE = int(os.getenv("TOURNAMENT_FINAL_ENSEMBLE_SIZE", "3"))
+
+# One lens per ensemble judge. All system-prompt criteria still apply; the
+# lens sets which failure mode that judge is least willing to forgive, so the
+# panel disagrees in useful ways instead of triple-counting a single taste.
+FINAL_ENSEMBLE_LENSES = [
+    "Weigh WORDPLAY & CRAFT most heavily: say every pun aloud in your head and "
+    "punish any that only work visually; reward tight editing, satisfying meter, "
+    "and headlines with a surface reading AND a hidden layer.",
+    "Weigh SELF-CONTAINED HUMOR most heavily: apply the forwarding test "
+    "ruthlessly — would a stranger who missed today's news laugh with zero "
+    "context? Rank down anything that leans on knowing the source story.",
+    "Weigh COMEDIC IMPACT most heavily: genuine laughs over smirks, surprise "
+    "over recognition, and dark satire that cuts at something real over safe "
+    "cleverness.",
+]
+
 _anthropic_client = None
 
 
@@ -394,8 +415,7 @@ def run_tournament(candidates: list, cross_day: bool = False) -> dict:
 
     # Final round
     print(f"--- Final round ({len(remaining)} headlines) ---")
-    final_ordered, explanation = rank_group(
-        remaining, round_num, len(remaining), MODEL_FINAL, cross_day, EFFORT_FINAL)
+    final_ordered = rank_final_ensemble(remaining, round_num, cross_day)
 
     headlines_by_rank = {}
     current_rank = 1
@@ -430,14 +450,72 @@ def distribute_into_groups(items: list, num_groups: int) -> list:
     return groups
 
 
+def rank_final_ensemble(group: list, round_num: int, cross_day: bool) -> list:
+    """
+    Rank the final group with a panel of lensed judges, aggregated by Borda
+    count. These are the only headlines that get published, so this is where
+    extra deliberation pays. Falls back to a single ranking when the ensemble
+    is disabled (size <= 1) or the group is trivially small.
+    """
+    n_judges = min(FINAL_ENSEMBLE_SIZE, len(FINAL_ENSEMBLE_LENSES))
+    if n_judges <= 1 or len(group) < 3:
+        ordered, _ = rank_group(group, round_num, len(group), MODEL_FINAL,
+                                cross_day, EFFORT_FINAL)
+        return ordered
+
+    lenses = FINAL_ENSEMBLE_LENSES[:n_judges]
+    # First judge runs alone to warm the final model's prompt cache (the system
+    # prefix is identical across lenses); the rest run in parallel against it.
+    orderings = [rank_group(group, round_num, len(group), MODEL_FINAL, cross_day,
+                            effort=EFFORT_FINAL, lens=lenses[0])[0]]
+    with ThreadPoolExecutor(max_workers=len(lenses) - 1) as executor:
+        futures = [
+            executor.submit(rank_group, group, round_num, len(group),
+                            MODEL_FINAL, cross_day, EFFORT_FINAL, lens)
+            for lens in lenses[1:]
+        ]
+        orderings.extend(f.result()[0] for f in futures)
+
+    return _borda_aggregate(group, orderings)
+
+
+def _borda_aggregate(group: list, orderings: list) -> list:
+    """
+    Merge multiple orderings of the same group: lowest summed position wins.
+    Ties break by best single-judge position (a headline one judge loved beats
+    a uniformly mediocre one), then by the first judge's order for determinism.
+    """
+    score = {h['headline_id']: 0 for h in group}
+    best = {h['headline_id']: len(group) for h in group}
+    first_pos = {h['headline_id']: i for i, h in enumerate(orderings[0])}
+    for ordering in orderings:
+        for pos, h in enumerate(ordering):
+            hid = h['headline_id']
+            score[hid] += pos
+            best[hid] = min(best[hid], pos)
+
+    by_id = {h['headline_id']: h for h in group}
+    ranked_ids = sorted(
+        score,
+        key=lambda hid: (score[hid], best[hid], first_pos.get(hid, len(group))),
+    )
+
+    judge_picks = [o[0]['headline'][:40] for o in orderings]
+    consensus = [by_id[hid]['headline'][:40] for hid in ranked_ids[:3]]
+    print(f"  Ensemble #1 picks per judge: {judge_picks}")
+    print(f"  Ensemble consensus top 3: {consensus}")
+    return [by_id[hid] for hid in ranked_ids]
+
+
 def rank_group(group: list, round_num: int, remaining: int, model: str = MODEL_FINAL,
-               cross_day: bool = False, effort: str = None) -> tuple:
+               cross_day: bool = False, effort: str = None, lens: str = None) -> tuple:
     """
     Ask the model to rank a group of headlines from best to worst.
     Returns (ordered_headlines, explanation).
 
     If cross_day=True, the original news headline is hidden from the judge entirely.
     effort (low/medium/high/max) scales adaptive-thinking depth; None = API default.
+    lens, if given, is a judging emphasis appended to the prompt (ensemble passes).
     """
     labels = [chr(ord('A') + i) for i in range(len(group))]
 
@@ -472,7 +550,8 @@ def rank_group(group: list, round_num: int, remaining: int, model: str = MODEL_F
         max_tokens = 500 if is_late else 300
 
     valid_max = chr(ord('A') + len(group) - 1)
-    prompt = f"""Rank these satirical headlines from best to worst.
+    lens_block = f"\n\nJUDGING EMPHASIS FOR THIS PASS: {lens}" if lens else ""
+    prompt = f"""Rank these satirical headlines from best to worst.{lens_block}
 
 {headline_block}
 
