@@ -55,15 +55,15 @@ EFFORT_FINAL = os.getenv("TOURNAMENT_FINAL_EFFORT", "high")
 # insurance. Raise via env if a ranking ever truncates mid-think.
 THINKING_MAX_TOKENS_FLOOR = int(os.getenv("TOURNAMENT_MAX_TOKENS_FLOOR", "8000"))
 
-# Final-round ensemble: rank the final group multiple times, each pass led by
-# a different judging lens, and aggregate with a Borda count. Only the top ~16
-# headlines are ever published, so extra deliberation is spent exactly where
-# it matters. Set to 1 to disable (single final ranking, prior behavior).
+# The final group is ranked once per ensemble judge, each pass led by a
+# different lens, and the orderings merge via Borda count. Only the top ~16
+# headlines are ever published, so extra deliberation goes exactly where it
+# matters. Set to 1 for a single final ranking.
 FINAL_ENSEMBLE_SIZE = int(os.getenv("TOURNAMENT_FINAL_ENSEMBLE_SIZE", "3"))
 
 # One lens per ensemble judge. All system-prompt criteria still apply; the
 # lens sets which failure mode that judge is least willing to forgive, so the
-# panel disagrees in useful ways instead of triple-counting a single taste.
+# panel disagrees in useful ways.
 FINAL_ENSEMBLE_LENSES = [
     "Weigh WORDPLAY & CRAFT most heavily: say every pun aloud in your head and "
     "punish any that only work visually; reward tight editing, satisfying meter, "
