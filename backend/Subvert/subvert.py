@@ -96,41 +96,97 @@ def get_google_client():
     return _google_client
 
 
+# The curation CLI (Scratch/curate_headlines.py) materializes the editor's
+# "outstanding" picks + rationales into this single item. Same source the
+# Tournament judge reads — using it here too means generation is steered by
+# human taste, not just by what the judge happened to rank #1 (which risks a
+# loop where the generator learns to please the judge rather than the editor).
+EXEMPLAR_CACHE_KEY = {'YearMonthDay': 'META', 'HeadlineId': 'outstanding_exemplars'}
+MAX_CURATED_FEW_SHOT = 4
+MAX_RANKED_FEW_SHOT = 2
+
+
+def _get_curated_examples() -> list:
+    """Editor-curated outstanding headlines (newest first) with rationales."""
+    resp = _headlines_table.get_item(Key=EXEMPLAR_CACHE_KEY)
+    headlines = (resp.get('Item') or {}).get('Headlines') or []
+
+    examples = []
+    for h in headlines[:MAX_CURATED_FEW_SHOT]:
+        if not h.get('Headline'):
+            continue
+        lines = []
+        if h.get('OriginalHeadline'):
+            lines.append(f"- Original: \"{h['OriginalHeadline']}\"")
+            lines.append(f"  Satirical: \"{h['Headline']}\"")
+        else:
+            lines.append(f"- Satirical: \"{h['Headline']}\"")
+        if h.get('Rationale'):
+            lines.append(f"  Why it works: {h['Rationale']}")
+        examples.append('\n'.join(lines))
+    return examples
+
+
+def _get_recent_top_ranked_examples(skip_headlines: set) -> list:
+    """The #1 judge-ranked headline from each of the last few days (freshness)."""
+    now = datetime.datetime.now(ZoneInfo('America/New_York'))
+    examples = []
+    for days_ago in range(1, 5):
+        if len(examples) >= MAX_RANKED_FEW_SHOT:
+            break
+        day_key = (now - datetime.timedelta(days=days_ago)).strftime('%Y%m%d')
+        response = _headlines_table.query(
+            KeyConditionExpression=Key('YearMonthDay').eq(day_key),
+        )
+        items = response.get('Items', [])
+        ranked = [i for i in items if i.get('Rank') is not None]
+        ranked.sort(key=lambda x: x['Rank'])
+        if ranked:
+            item = ranked[0]
+            if item.get('Headline', '') in skip_headlines:
+                continue
+            examples.append(
+                f"- Original: \"{item.get('OriginalHeadline', '')}\"\n"
+                f"  Satirical: \"{item.get('Headline', '')}\""
+            )
+    return examples
+
+
 def get_few_shot_examples() -> str:
-    """Fetch recent top-ranked headlines as few-shot style examples. Cached per Lambda warm period."""
+    """
+    Few-shot style examples for the brainstorm prompt, cached per Lambda warm
+    period. Editor-curated outstanding exemplars (with "why it works"
+    rationales) lead; recent judge-ranked #1s supplement for freshness.
+    """
     global _few_shot_cache
     if _few_shot_cache is not None:
         return _few_shot_cache
 
-    try:
-        now = datetime.datetime.now(ZoneInfo('America/New_York'))
-        examples = []
-        # Grab the #1 headline from each of the last few days
-        for days_ago in range(1, 5):
-            if len(examples) >= 2:
-                break
-            day_key = (now - datetime.timedelta(days=days_ago)).strftime('%Y%m%d')
-            response = _headlines_table.query(
-                KeyConditionExpression=Key('YearMonthDay').eq(day_key),
-            )
-            items = response.get('Items', [])
-            ranked = [i for i in items if i.get('Rank') is not None]
-            ranked.sort(key=lambda x: x['Rank'])
-            if ranked:
-                item = ranked[0]
-                examples.append(
-                    f"- Original: \"{item.get('OriginalHeadline', '')}\"\n"
-                    f"  Satirical: \"{item.get('Headline', '')}\""
-                )
+    sections = []
 
-        if examples:
-            _few_shot_cache = "\n\nRecent top-ranked headlines from our paper:\n" + "\n".join(examples)
-        else:
-            _few_shot_cache = ""
+    curated = []
+    try:
+        curated = _get_curated_examples()
+        if curated:
+            sections.append(
+                "\n\nExemplary headlines from our paper (hand-picked by the editor — "
+                "match this bar):\n" + "\n".join(curated)
+            )
+    except Exception as e:
+        print(f"Failed to fetch curated exemplars: {e}")
+
+    try:
+        curated_titles = {line.split('Satirical: "')[-1].split('"')[0]
+                          for line in curated}
+        recent = _get_recent_top_ranked_examples(curated_titles)
+        if recent:
+            sections.append(
+                "\n\nRecent top-ranked headlines from our paper:\n" + "\n".join(recent)
+            )
     except Exception as e:
         print(f"Failed to fetch few-shot examples: {e}")
-        _few_shot_cache = ""
 
+    _few_shot_cache = "".join(sections)
     return _few_shot_cache
 
 
