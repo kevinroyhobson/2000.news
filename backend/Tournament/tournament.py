@@ -360,12 +360,9 @@ def run_tournament(candidates: list, cross_day: bool = False) -> dict:
             winner_preview = [h['headline'][:40] for h in winners]
             print(f"  Group ({len(ordered)}): winners={winner_preview}")
 
-        # Warm the prompt cache before fanning out. A cache entry only becomes
-        # readable once the request that writes it starts responding, so firing
-        # all ~28 round-1 groups at once meant every call paid the 1.25x
-        # cache-WRITE price on the ~5k-token system prompt instead of one write
-        # + cheap 0.1x reads. Rank the first group alone, then parallelize the
-        # rest against the now-warm cache.
+        # A prompt-cache entry becomes readable once the request writing it
+        # starts responding, so the first group ranks alone to write the
+        # system-prompt cache and the remaining groups read it in parallel.
         first_ordered, _ = rank_group(
             groups[0], round_num, len(remaining), MODEL_ELIMINATION, cross_day)
         record_group_result(first_ordered)
