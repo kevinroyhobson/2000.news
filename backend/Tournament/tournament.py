@@ -41,6 +41,13 @@ VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 POLISH_ENABLED = os.getenv("TOURNAMENT_POLISH", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
+# Elimination judges run at low effort because a coarse 15-to-3 cut only
+# needs a rough ordering; the final round runs at high. Both are passed
+# explicitly so behavior is pinned even if the API's default effort changes.
+# effort requires Sonnet 4.6+/Opus — remove it before pointing
+# MODEL_ELIMINATION at Haiku.
+EFFORT_ELIMINATION = os.getenv("TOURNAMENT_ELIMINATION_EFFORT", "low")
+EFFORT_FINAL = os.getenv("TOURNAMENT_FINAL_EFFORT", "high")
 # Adaptive thinking (Sonnet 5 elimination + Opus 4.8 final) emits reasoning
 # tokens before the answer, all counted against max_tokens. Floor every call's
 # budget so a long think can't truncate the ranking line. It's a ceiling, not a
@@ -364,14 +371,16 @@ def run_tournament(candidates: list, cross_day: bool = False) -> dict:
         # starts responding, so the first group ranks alone to write the
         # system-prompt cache and the remaining groups read it in parallel.
         first_ordered, _ = rank_group(
-            groups[0], round_num, len(remaining), MODEL_ELIMINATION, cross_day)
+            groups[0], round_num, len(remaining), MODEL_ELIMINATION, cross_day,
+            EFFORT_ELIMINATION)
         record_group_result(first_ordered)
 
         rest = groups[1:]
         if rest:
             with ThreadPoolExecutor(max_workers=min(50, len(rest))) as executor:
                 futures = {
-                    executor.submit(rank_group, group, round_num, len(remaining), MODEL_ELIMINATION, cross_day): i
+                    executor.submit(rank_group, group, round_num, len(remaining),
+                                    MODEL_ELIMINATION, cross_day, EFFORT_ELIMINATION): i
                     for i, group in enumerate(rest)
                 }
 
@@ -385,7 +394,8 @@ def run_tournament(candidates: list, cross_day: bool = False) -> dict:
 
     # Final round
     print(f"--- Final round ({len(remaining)} headlines) ---")
-    final_ordered, explanation = rank_group(remaining, round_num, len(remaining), MODEL_FINAL, cross_day)
+    final_ordered, explanation = rank_group(
+        remaining, round_num, len(remaining), MODEL_FINAL, cross_day, EFFORT_FINAL)
 
     headlines_by_rank = {}
     current_rank = 1
@@ -420,12 +430,14 @@ def distribute_into_groups(items: list, num_groups: int) -> list:
     return groups
 
 
-def rank_group(group: list, round_num: int, remaining: int, model: str = MODEL_FINAL, cross_day: bool = False) -> tuple:
+def rank_group(group: list, round_num: int, remaining: int, model: str = MODEL_FINAL,
+               cross_day: bool = False, effort: str = None) -> tuple:
     """
     Ask the model to rank a group of headlines from best to worst.
     Returns (ordered_headlines, explanation).
 
     If cross_day=True, the original news headline is hidden from the judge entirely.
+    effort (low/medium/high/max) scales adaptive-thinking depth; None = API default.
     """
     labels = [chr(ord('A') + i) for i in range(len(group))]
 
@@ -474,6 +486,7 @@ OUTPUT FORMAT (strict):
     response_text = call_tournament_model(
         prompt, max_tokens=max_tokens,
         round_num=round_num, remaining=remaining, model=model,
+        effort=effort,
     )
 
     # Parse: find the line with comma-separated letters (model often prefixes with preamble)
@@ -528,10 +541,12 @@ RETRY_BASE_DELAY = 2
 @observe(as_type="generation")
 def call_tournament_model(prompt: str, max_tokens=200,
                           round_num=0, remaining=0,
-                          model: str = MODEL_FINAL) -> str:
+                          model: str = MODEL_FINAL,
+                          effort: str = None) -> str:
     """Call the tournament model with cached system prompt."""
     provider = os.getenv("TOURNAMENT_PROVIDER", "anthropic")
-    text, usage = _do_api_call(provider, model, prompt, max_tokens=max_tokens)
+    text, usage = _do_api_call(provider, model, prompt, max_tokens=max_tokens,
+                               effort=effort)
     langfuse.update_current_generation(
         model=model,
         input=[
@@ -540,16 +555,20 @@ def call_tournament_model(prompt: str, max_tokens=200,
         ],
         output=text,
         usage_details=usage,
-        metadata={"round_num": round_num, "remaining_count": remaining},
+        metadata={"round_num": round_num, "remaining_count": remaining,
+                  "effort": effort or "default"},
     )
     return text
 
 
 def _do_api_call(provider: str, model: str, prompt: str,
-                 max_tokens: int = 200) -> tuple:
+                 max_tokens: int = 200, effort: str = None) -> tuple:
     """Make the actual API call with retries and prompt caching."""
     max_tokens = max(max_tokens, THINKING_MAX_TOKENS_FLOOR)
-    print(f"[tournament] Calling {provider}/{model} (max_tokens={max_tokens})")
+    print(f"[tournament] Calling {provider}/{model} (max_tokens={max_tokens}, effort={effort or 'default'})")
+
+    # effort scales adaptive-thinking depth; None takes the API default (high).
+    extra_kwargs = {"output_config": {"effort": effort}} if effort else {}
 
     for attempt in range(MAX_RETRIES + 1):
         try:
@@ -559,10 +578,10 @@ def _do_api_call(provider: str, model: str, prompt: str,
                     model=model,
                     max_tokens=max_tokens,
                     # Adaptive thinking on both judges (Sonnet 5 elimination,
-                    # Opus 4.8 final). Effort defaults to high; max_tokens is
-                    # floored above to leave room for the think before the
-                    # ranking line. display defaults to "omitted" — we only read
-                    # the answer text block below, never the reasoning.
+                    # Opus 4.8 final). max_tokens is floored above to leave
+                    # room for the think before the ranking line. display
+                    # defaults to "omitted" — we only read the answer text
+                    # block below, never the reasoning.
                     thinking={"type": "adaptive"},
                     system=[{
                         "type": "text",
@@ -570,6 +589,7 @@ def _do_api_call(provider: str, model: str, prompt: str,
                         "cache_control": {"type": "ephemeral"},
                     }],
                     messages=[{"role": "user", "content": prompt}],
+                    **extra_kwargs,
                 )
                 # With thinking on, content[0] is a (possibly empty) thinking
                 # block — pull the answer from the first text block instead.
@@ -647,7 +667,8 @@ Satirical version: "{h['headline']}"
 Angle: {h.get('angle', '')}
 
 OUTPUT: Reply with ONLY the headline — either unchanged, or your rewrite. No explanation, no preamble."""
-            futures[executor.submit(call_tournament_model, prompt, max_tokens=200)] = h
+            futures[executor.submit(call_tournament_model, prompt, max_tokens=200,
+                                    effort=EFFORT_FINAL)] = h
 
         for future in as_completed(futures):
             h = futures[future]
