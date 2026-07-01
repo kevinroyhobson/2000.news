@@ -171,6 +171,9 @@ Resources:
           # cuts, high for the final ranking.
           TOURNAMENT_ELIMINATION_EFFORT: "low"
           TOURNAMENT_FINAL_EFFORT: "high"
+          # Final round runs as a 3-judge lensed ensemble (craft / self-contained
+          # / impact) aggregated by Borda count. "1" disables the ensemble.
+          TOURNAMENT_FINAL_ENSEMBLE_SIZE: "3"
           TOURNAMENT_VERBOSE: "false"
           # Off after A/B: conservative polish changes ~nothing, aggressive degrades
           # good headlines, two-pass only nets ~2 wins/16 — not worth the spend/risk.
