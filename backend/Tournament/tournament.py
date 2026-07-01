@@ -349,23 +349,38 @@ def run_tournament(candidates: list, cross_day: bool = False) -> dict:
         next_remaining = []
         round_eliminated = []
 
-        with ThreadPoolExecutor(max_workers=min(50, num_groups)) as executor:
-            futures = {
-                executor.submit(rank_group, group, round_num, len(remaining), MODEL_ELIMINATION, cross_day): i
-                for i, group in enumerate(groups)
-            }
+        def record_group_result(ordered):
+            winners = ordered[:3]
+            losers = ordered[3:]
 
-            for future in as_completed(futures):
-                ordered, explanation = future.result()
-                winners = ordered[:3]
-                losers = ordered[3:]
+            next_remaining.extend(winners)
+            for pos, headline in enumerate(losers, start=3):
+                round_eliminated.append((headline['headline_id'], pos))
 
-                next_remaining.extend(winners)
-                for pos, headline in enumerate(losers, start=3):
-                    round_eliminated.append((headline['headline_id'], pos))
+            winner_preview = [h['headline'][:40] for h in winners]
+            print(f"  Group ({len(ordered)}): winners={winner_preview}")
 
-                winner_preview = [h['headline'][:40] for h in winners]
-                print(f"  Group ({len(ordered)}): winners={winner_preview}")
+        # Warm the prompt cache before fanning out. A cache entry only becomes
+        # readable once the request that writes it starts responding, so firing
+        # all ~28 round-1 groups at once meant every call paid the 1.25x
+        # cache-WRITE price on the ~5k-token system prompt instead of one write
+        # + cheap 0.1x reads. Rank the first group alone, then parallelize the
+        # rest against the now-warm cache.
+        first_ordered, _ = rank_group(
+            groups[0], round_num, len(remaining), MODEL_ELIMINATION, cross_day)
+        record_group_result(first_ordered)
+
+        rest = groups[1:]
+        if rest:
+            with ThreadPoolExecutor(max_workers=min(50, len(rest))) as executor:
+                futures = {
+                    executor.submit(rank_group, group, round_num, len(remaining), MODEL_ELIMINATION, cross_day): i
+                    for i, group in enumerate(rest)
+                }
+
+                for future in as_completed(futures):
+                    ordered, explanation = future.result()
+                    record_group_result(ordered)
 
         elimination_rounds.append(round_eliminated)
         remaining = next_remaining
