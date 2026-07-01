@@ -41,13 +41,10 @@ VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 POLISH_ENABLED = os.getenv("TOURNAMENT_POLISH", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
-# Elimination rounds are coarse 15-to-3 cuts and don't need deep deliberation.
-# Adaptive thinking at the API's default effort (high) was spending thousands
-# of thinking tokens per ranking call — the dominant tournament cost. "low"
-# keeps adaptive thinking (the judge still thinks briefly when a group is
-# genuinely close) at a fraction of the tokens. The final round passes no
-# effort and gets the API default. NOTE: effort requires Sonnet 4.6+/Opus;
-# don't point MODEL_ELIMINATION at Haiku without removing this.
+# Elimination judges run at low effort because a coarse 15-to-3 cut only
+# needs a rough ordering; the final round takes the API default (high).
+# effort requires Sonnet 4.6+/Opus — remove it before pointing
+# MODEL_ELIMINATION at Haiku.
 EFFORT_ELIMINATION = os.getenv("TOURNAMENT_ELIMINATION_EFFORT", "low")
 # Adaptive thinking (Sonnet 5 elimination + Opus 4.8 final) emits reasoning
 # tokens before the answer, all counted against max_tokens. Floor every call's
@@ -567,8 +564,7 @@ def _do_api_call(provider: str, model: str, prompt: str,
     max_tokens = max(max_tokens, THINKING_MAX_TOKENS_FLOOR)
     print(f"[tournament] Calling {provider}/{model} (max_tokens={max_tokens}, effort={effort or 'default'})")
 
-    # effort scales how much the adaptive thinking deliberates. Elimination
-    # rounds pass "low"; the final round passes None (API default, high).
+    # effort scales adaptive-thinking depth; None takes the API default (high).
     extra_kwargs = {"output_config": {"effort": effort}} if effort else {}
 
     for attempt in range(MAX_RETRIES + 1):

@@ -167,9 +167,8 @@ Resources:
           TOURNAMENT_PROVIDER: anthropic
           TOURNAMENT_MODEL_FINAL: claude-opus-4-8
           TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
-          # Coarse 15-to-3 elimination cuts don't need deep deliberation;
-          # default-effort adaptive thinking was the dominant tournament cost.
-          # Final round is unaffected (API default effort).
+          # Thinking depth for the coarse 15-to-3 elimination cuts; the
+          # final round takes the API default (high).
           TOURNAMENT_ELIMINATION_EFFORT: "low"
           TOURNAMENT_VERBOSE: "false"
           # Off after A/B: conservative polish changes ~nothing, aggressive degrades
