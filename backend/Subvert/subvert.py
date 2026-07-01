@@ -97,10 +97,10 @@ def get_google_client():
 
 
 # The curation CLI (Scratch/curate_headlines.py) materializes the editor's
-# "outstanding" picks + rationales into this single item. Same source the
-# Tournament judge reads — using it here too means generation is steered by
-# human taste, not just by what the judge happened to rank #1 (which risks a
-# loop where the generator learns to please the judge rather than the editor).
+# "outstanding" picks + rationales into this single item — the same source the
+# Tournament judge reads. Curated examples lead the few-shot section because
+# they carry the editor's taste directly, where judge-ranked picks only
+# approximate it.
 EXEMPLAR_CACHE_KEY = {'YearMonthDay': 'META', 'HeadlineId': 'outstanding_exemplars'}
 MAX_CURATED_FEW_SHOT = 4
 MAX_RANKED_FEW_SHOT = 2
