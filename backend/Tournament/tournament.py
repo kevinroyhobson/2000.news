@@ -42,10 +42,12 @@ POLISH_ENABLED = os.getenv("TOURNAMENT_POLISH", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
 # Elimination judges run at low effort because a coarse 15-to-3 cut only
-# needs a rough ordering; the final round takes the API default (high).
+# needs a rough ordering; the final round runs at high. Both are passed
+# explicitly so behavior is pinned even if the API's default effort changes.
 # effort requires Sonnet 4.6+/Opus — remove it before pointing
 # MODEL_ELIMINATION at Haiku.
 EFFORT_ELIMINATION = os.getenv("TOURNAMENT_ELIMINATION_EFFORT", "low")
+EFFORT_FINAL = os.getenv("TOURNAMENT_FINAL_EFFORT", "high")
 # Adaptive thinking (Sonnet 5 elimination + Opus 4.8 final) emits reasoning
 # tokens before the answer, all counted against max_tokens. Floor every call's
 # budget so a long think can't truncate the ranking line. It's a ceiling, not a
@@ -392,7 +394,8 @@ def run_tournament(candidates: list, cross_day: bool = False) -> dict:
 
     # Final round
     print(f"--- Final round ({len(remaining)} headlines) ---")
-    final_ordered, explanation = rank_group(remaining, round_num, len(remaining), MODEL_FINAL, cross_day)
+    final_ordered, explanation = rank_group(
+        remaining, round_num, len(remaining), MODEL_FINAL, cross_day, EFFORT_FINAL)
 
     headlines_by_rank = {}
     current_rank = 1
@@ -664,7 +667,8 @@ Satirical version: "{h['headline']}"
 Angle: {h.get('angle', '')}
 
 OUTPUT: Reply with ONLY the headline — either unchanged, or your rewrite. No explanation, no preamble."""
-            futures[executor.submit(call_tournament_model, prompt, max_tokens=200)] = h
+            futures[executor.submit(call_tournament_model, prompt, max_tokens=200,
+                                    effort=EFFORT_FINAL)] = h
 
         for future in as_completed(futures):
             h = futures[future]

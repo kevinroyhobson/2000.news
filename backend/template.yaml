@@ -167,9 +167,10 @@ Resources:
           TOURNAMENT_PROVIDER: anthropic
           TOURNAMENT_MODEL_FINAL: claude-opus-4-8
           TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
-          # Thinking depth for the coarse 15-to-3 elimination cuts; the
-          # final round takes the API default (high).
+          # Thinking depth per round: low for the coarse 15-to-3 elimination
+          # cuts, high for the final ranking.
           TOURNAMENT_ELIMINATION_EFFORT: "low"
+          TOURNAMENT_FINAL_EFFORT: "high"
           TOURNAMENT_VERBOSE: "false"
           # Off after A/B: conservative polish changes ~nothing, aggressive degrades
           # good headlines, two-pass only nets ~2 wins/16 — not worth the spend/risk.
