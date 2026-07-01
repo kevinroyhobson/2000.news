@@ -122,62 +122,86 @@ Resources:
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 
+  # Thin stream trigger: batches new stories and starts one SubvertPipeline
+  # execution. All LLM work happens in the state machine via the Anthropic
+  # Batch API (50% token pricing), so this function never calls a model.
   Subvert:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Subvert/subvert.subvert
       Runtime: python3.14
-      MemorySize: 1024
-      Timeout: 120
+      MemorySize: 512
+      Timeout: 30
       Environment:
         Variables:
-          BRAINSTORM_PROVIDER: anthropic
-          BRAINSTORM_MODEL: claude-opus-4-8
-          GENERATE_PROVIDER: anthropic
-          GENERATE_MODEL: claude-haiku-4-5-20251001
+          SUBVERT_STATE_MACHINE_ARN: !Ref SubvertPipeline
       Events:
        DDBEvent:
          Type: DynamoDB
          Properties:
            Stream: !GetAtt Stories.StreamArn
            StartingPosition: TRIM_HORIZON
-           BatchSize: 3
+           # Wide batching so one fetch run's ~22 stories flow through as a
+           # single execution / Anthropic batch instead of many small ones.
+           BatchSize: 25
+           MaximumBatchingWindowInSeconds: 300
            Enabled: True
 
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref Stories
+            TableName: !Ref SubvertedHeadlines
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt SubvertPipeline.Name
+
+  # Step Functions task handler for the Subvert pipeline: submits the
+  # brainstorm and generate batches, polls them, parses results, saves
+  # headlines. Sized for the sync-fallback path (a timed-out batch is
+  # re-run as parallel messages.create calls inside one invocation).
+  SubvertPipelineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: Subvert/pipeline.handler
+      Runtime: python3.14
+      MemorySize: 1024
+      Timeout: 600
+      Environment:
+        Variables:
+          BRAINSTORM_MODEL: claude-opus-4-8
+          GENERATE_MODEL: claude-haiku-4-5-20251001
+      Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SubvertedHeadlines
-        - DynamoDBCrudPolicy:
+        - DynamoDBReadPolicy:
             TableName: !Ref Words
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 
+  SubvertPipeline:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: SubvertPipeline
+      Type: STANDARD
+      DefinitionUri: statemachines/subvert_pipeline.asl.json
+      DefinitionSubstitutions:
+        SubvertPipelineFunctionArn: !GetAtt SubvertPipelineFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SubvertPipelineFunction
+
+  # Thin stream trigger: takes the per-day tournament lock and starts one
+  # TournamentPipeline execution. The lock (a META item in SubvertedHeadlines)
+  # replaces the old ReservedConcurrentExecutions=1 — a run already in flight
+  # re-checks for new headlines before releasing it, so nothing is stranded.
   Tournament:
     Type: AWS::Serverless::Function
     Properties:
       Handler: Tournament/tournament.tournament
       Runtime: python3.14
-      MemorySize: 1024
-      Timeout: 900
-      ReservedConcurrentExecutions: 1
+      MemorySize: 512
+      Timeout: 30
       Environment:
         Variables:
-          TOURNAMENT_PROVIDER: anthropic
-          TOURNAMENT_MODEL_FINAL: claude-opus-4-8
-          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
-          # Thinking depth per round: low for the coarse 15-to-3 elimination
-          # cuts, high for the final ranking.
-          TOURNAMENT_ELIMINATION_EFFORT: "low"
-          TOURNAMENT_FINAL_EFFORT: "high"
-          # Final round runs as a 3-judge lensed ensemble (craft / self-contained
-          # / impact) aggregated by Borda count. "1" disables the ensemble.
-          TOURNAMENT_FINAL_ENSEMBLE_SIZE: "3"
-          TOURNAMENT_VERBOSE: "false"
-          # Off after A/B: conservative polish changes ~nothing, aggressive degrades
-          # good headlines, two-pass only nets ~2 wins/16 — not worth the spend/risk.
-          TOURNAMENT_POLISH: "false"
+          TOURNAMENT_STATE_MACHINE_ARN: !Ref TournamentPipeline
       Events:
         HeadlineStream:
           Type: DynamoDB
@@ -193,8 +217,57 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SubvertedHeadlines
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt TournamentPipeline.Name
+
+  # Step Functions task handler for the Tournament pipeline: each elimination
+  # round and the final ensemble is one Anthropic batch. Sized for the
+  # sync-fallback path (a timed-out round re-runs as parallel API calls).
+  TournamentPipelineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: Tournament/pipeline.handler
+      Runtime: python3.14
+      MemorySize: 1024
+      Timeout: 900
+      Environment:
+        Variables:
+          TOURNAMENT_MODEL_FINAL: claude-opus-4-8
+          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
+          # Thinking depth per round: low for the coarse 15-to-3 elimination
+          # cuts, high for the final ranking.
+          TOURNAMENT_ELIMINATION_EFFORT: "low"
+          TOURNAMENT_FINAL_EFFORT: "high"
+          # Final round runs as a 3-judge lensed ensemble (craft / self-contained
+          # / impact) aggregated by Borda count. "1" disables the ensemble.
+          TOURNAMENT_FINAL_ENSEMBLE_SIZE: "3"
+          TOURNAMENT_VERBOSE: "false"
+          # Composed from the fixed state machine name (not !Ref) because the
+          # state machine also invokes this function — a !Ref would be a
+          # circular dependency. Used by finalize to restart the pipeline when
+          # headlines arrive mid-run.
+          TOURNAMENT_STATE_MACHINE_ARN: !Sub arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:TournamentPipeline
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubvertedHeadlines
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: TournamentPipeline
+
+  TournamentPipeline:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      # Fixed name so TournamentPipelineFunction can reference its own state
+      # machine (see TOURNAMENT_STATE_MACHINE_ARN above).
+      Name: TournamentPipeline
+      Type: STANDARD
+      DefinitionUri: statemachines/tournament_pipeline.asl.json
+      DefinitionSubstitutions:
+        TournamentPipelineFunctionArn: !GetAtt TournamentPipelineFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TournamentPipelineFunction
 
   Get:
     Type: AWS::Serverless::Function

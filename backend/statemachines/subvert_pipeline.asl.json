@@ -1,0 +1,195 @@
+{
+  "Comment": "Subvert pipeline: brainstorm batch -> generate batch -> save headlines. Each LLM stage is one Anthropic Message Batch (50% token pricing); the poll loops wait on batch completion. After ~3h (90 polls x 120s) a stage is marked timed_out and the next task cancels the batch and falls back to synchronous API calls, so a slow batch bounds latency instead of stranding stories.",
+  "StartAt": "SubmitBrainstorm",
+  "States": {
+    "SubmitBrainstorm": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${SubvertPipelineFunctionArn}",
+        "Payload": {
+          "action": "submit_brainstorm",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "WaitForBrainstorm"
+    },
+    "WaitForBrainstorm": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Next": "CheckBrainstorm"
+    },
+    "CheckBrainstorm": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${SubvertPipelineFunctionArn}",
+        "Payload": {
+          "action": "check_batch",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "IsBrainstormDone"
+    },
+    "IsBrainstormDone": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.batch.status",
+          "StringEquals": "ended",
+          "Next": "SubmitGenerate"
+        },
+        {
+          "Variable": "$.batch.polls",
+          "NumericGreaterThanEquals": 90,
+          "Next": "BrainstormTimedOut"
+        }
+      ],
+      "Default": "WaitForBrainstorm"
+    },
+    "BrainstormTimedOut": {
+      "Type": "Pass",
+      "Result": true,
+      "ResultPath": "$.batch.timed_out",
+      "Next": "SubmitGenerate"
+    },
+    "SubmitGenerate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${SubvertPipelineFunctionArn}",
+        "Payload": {
+          "action": "submit_generate",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "WaitForGenerate"
+    },
+    "WaitForGenerate": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Next": "CheckGenerate"
+    },
+    "CheckGenerate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${SubvertPipelineFunctionArn}",
+        "Payload": {
+          "action": "check_batch",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "IsGenerateDone"
+    },
+    "IsGenerateDone": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.batch.status",
+          "StringEquals": "ended",
+          "Next": "SaveHeadlines"
+        },
+        {
+          "Variable": "$.batch.polls",
+          "NumericGreaterThanEquals": 90,
+          "Next": "GenerateTimedOut"
+        }
+      ],
+      "Default": "WaitForGenerate"
+    },
+    "GenerateTimedOut": {
+      "Type": "Pass",
+      "Result": true,
+      "ResultPath": "$.batch.timed_out",
+      "Next": "SaveHeadlines"
+    },
+    "SaveHeadlines": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${SubvertPipelineFunctionArn}",
+        "Payload": {
+          "action": "save_headlines",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "End": true
+    }
+  }
+}
