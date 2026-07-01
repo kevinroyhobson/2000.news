@@ -73,7 +73,8 @@ FINAL_ENSEMBLE_LENSES = [
     "context? Rank down anything that leans on knowing the source story.",
     "Weigh COMEDIC IMPACT most heavily: genuine laughs over smirks, surprise "
     "over recognition, and dark satire that cuts at something real over safe "
-    "cleverness.",
+    "cleverness. The best satire punches up — it exposes hypocrisy in the "
+    "powerful and says the absurdity of how society actually works out loud.",
 ]
 
 _anthropic_client = None
