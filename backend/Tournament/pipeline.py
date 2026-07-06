@@ -24,12 +24,20 @@ execution state far below the 256KB limit:
       "batch": {batch_id, status, polls, timed_out}
     }
 
-Ranking system (unchanged from the synchronous implementation):
+Ranking system:
 - Final group (<=20 remain): explicit 1-through-N ordering, ranked once per
   ensemble judge (craft / self-contained / impact lenses) and merged by Borda
   count.
-- Earlier rounds: groups of ~15 ranked in parallel within one batch, top 3
-  advance; eliminated headlines are sub-ranked by intra-group finish position.
+- Terminal elimination round (the one whose winners go to the final, i.e.
+  3 * num_groups <= 20): full 1-through-N group ranking at low effort — its
+  losers' positions are published (same-day ranks 16-64 straddle the survivor
+  line; the cross-day round's losers become CrossDayRank 19+, which drives
+  /today).
+- Mass-cut rounds (everything earlier): the judge picks the best 3 per group,
+  unordered, at high effort. Those rounds' loser positions land below the
+  survivor line and are discarded, so the old full ranking bought nothing —
+  pick-3 spends the deliberation on the only irreversible decision (the cut)
+  instead. Non-picked headlines record a tied position.
 """
 
 import datetime
@@ -62,11 +70,15 @@ SURVIVOR_COUNT = 64
 VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
-# Elimination judges run at low effort because a coarse 15-to-3 cut only
-# needs a rough ordering; the final round runs at high. Both are passed
-# explicitly so behavior is pinned even if the API's default effort changes.
-# effort requires Sonnet 4.6+/Opus — remove it before pointing
+# Thinking depth per round type. Mass-cut rounds run pick-3 at high effort:
+# the cut is the only irreversible decision, and a 3-letter answer spends its
+# thinking on that instead of ordering a tail nobody reads. The terminal
+# elimination round keeps the full low-effort ranking because its loser
+# positions are published. The final runs full ranking at high. All are
+# passed explicitly so behavior is pinned even if the API's default effort
+# changes. effort requires Sonnet 4.6+/Opus — remove it before pointing
 # MODEL_ELIMINATION at Haiku.
+EFFORT_CUT = os.getenv("TOURNAMENT_CUT_EFFORT", "high")
 EFFORT_ELIMINATION = os.getenv("TOURNAMENT_ELIMINATION_EFFORT", "low")
 EFFORT_FINAL = os.getenv("TOURNAMENT_FINAL_EFFORT", "high")
 # Adaptive thinking (Sonnet 5 elimination + Opus 4.8 final) emits reasoning
@@ -302,35 +314,47 @@ def _stage_rounds(refs: list) -> dict:
 # Elimination rounds — one batch per round, one request per group
 # ---------------------------------------------------------------------------
 
+def _is_terminal_round(groups: list) -> bool:
+    """A round is terminal when its winners (3 per group) go straight to the
+    final. Terminal-round losers land at published ranks, so they get a full
+    ranking; earlier (mass-cut) rounds use pick-3."""
+    return 3 * len(groups) <= 20
+
+
 def submit_round(state: dict) -> dict:
     requests = _build_round_requests(state)
+    mode = "full_rank" if _is_terminal_round(state["groups"]) else "pick3"
     print(f"--- Round {state['round_num']} ({state['remaining']} headlines, "
-          f"{len(state['groups'])} groups, mode={state['mode']}) ---")
+          f"{len(state['groups'])} groups, mode={state['mode']}, judge={mode}) ---")
     return {**state, "batch": submit_batch(get_anthropic_client(), requests)}
 
 
 def _build_round_requests(state: dict) -> list:
     lookup = _fetch_headline_lookup([ref for group in state["groups"] for ref in group])
     cross_day = state["mode"] == "cross_day"
+    pick3 = not _is_terminal_round(state["groups"])
     return [
         _build_ranking_request(
             f"r{state['round_num']}-g{i}",
             [lookup[(ref["d"], ref["id"])] for ref in group],
             remaining=state["remaining"],
             model=MODEL_ELIMINATION,
-            effort=EFFORT_ELIMINATION,
+            effort=EFFORT_CUT if pick3 else EFFORT_ELIMINATION,
             cross_day=cross_day,
+            pick3=pick3,
         )
         for i, group in enumerate(state["groups"])
     ]
 
 
 def process_round(state: dict) -> dict:
-    """Collect a round's rankings: top 3 per group advance, the rest record
-    their intra-group finish position for tier sub-ranking."""
+    """Collect a round's judgments: top 3 per group advance. In a terminal
+    (full-rank) round the rest record their intra-group finish position for
+    tier sub-ranking; in a mass-cut (pick-3) round they tie at position 3."""
     requests = _build_round_requests(state)
     resolved = resolve_batch(get_anthropic_client(), state["batch"], requests)
     lookup = _fetch_headline_lookup([ref for group in state["groups"] for ref in group])
+    pick3 = not _is_terminal_round(state["groups"])
 
     winners = []
     round_eliminated = []
@@ -344,9 +368,15 @@ def process_round(state: dict) -> dict:
                 output=result["text"],
                 usage=result["usage"],
                 metadata={"round_num": state["round_num"], "remaining_count": state["remaining"],
-                          "effort": EFFORT_ELIMINATION, "mode": state["mode"], "via": result["via"]},
+                          "effort": EFFORT_CUT if pick3 else EFFORT_ELIMINATION,
+                          "judge_mode": "pick3" if pick3 else "full_rank",
+                          "mode": state["mode"], "via": result["via"]},
             )
-            order, explanation = _parse_ranking(result["text"], len(group))
+            if pick3:
+                order = _parse_pick3(result["text"], len(group))
+                explanation = ""
+            else:
+                order, explanation = _parse_ranking(result["text"], len(group))
             if VERBOSE and explanation:
                 print(f"  Group {i} explanation: {explanation}")
         else:
@@ -354,13 +384,25 @@ def process_round(state: dict) -> dict:
             order = list(range(len(group)))
             random.shuffle(order)
 
-        ordered = [group[j] for j in order]
-        winners.extend(ordered[:3])
-        for pos, ref in enumerate(ordered[3:], start=3):
-            round_eliminated.append({**ref, "pos": pos})
+        if pick3:
+            picked = set(order[:3])
+            group_winners = [group[j] for j in order[:3]]
+            winners.extend(group_winners)
+            # Non-picked headlines tie at position 3 — a mass-cut round's
+            # losers rank below the survivor line anyway, so the tie is never
+            # visible on the site.
+            for j, ref in enumerate(group):
+                if j not in picked:
+                    round_eliminated.append({**ref, "pos": 3})
+        else:
+            ordered = [group[j] for j in order]
+            group_winners = ordered[:3]
+            winners.extend(group_winners)
+            for pos, ref in enumerate(ordered[3:], start=3):
+                round_eliminated.append({**ref, "pos": pos})
 
-        winner_preview = [lookup[(ref["d"], ref["id"])]["headline"][:40] for ref in ordered[:3]]
-        print(f"  Group {i} ({len(ordered)}): winners={winner_preview}")
+        winner_preview = [lookup[(ref["d"], ref["id"])]["headline"][:40] for ref in group_winners]
+        print(f"  Group {i} ({len(group)}): winners={winner_preview}")
 
     elim = state["elim"] + [round_eliminated]
     random.shuffle(winners)
@@ -427,7 +469,8 @@ def process_final(state: dict) -> dict:
             output=result["text"],
             usage=result["usage"],
             metadata={"round_num": state["round_num"], "remaining_count": len(group),
-                      "effort": EFFORT_FINAL, "mode": state["mode"], "via": result["via"]},
+                      "effort": EFFORT_FINAL, "judge_mode": "full_rank",
+                      "mode": state["mode"], "via": result["via"]},
         )
         order, _ = _parse_ranking(result["text"], len(group))
         orderings.append([group[j] for j in order])
@@ -599,10 +642,10 @@ def abort(state: dict) -> dict:
 
 def _build_ranking_request(custom_id: str, group_data: list, *, remaining: int,
                            model: str, effort: str, cross_day: bool,
-                           lens: str = None) -> dict:
+                           lens: str = None, pick3: bool = False) -> dict:
     """
-    Build one batch request asking the model to rank a group of headlines
-    from best to worst.
+    Build one batch request asking the model to judge a group of headlines:
+    a full best-to-worst ranking, or (pick3=True) just the 3 best, unordered.
 
     If cross_day=True, the original news headline is hidden from the judge
     entirely (cross-day readers are far from the news, so headlines must
@@ -622,29 +665,45 @@ def _build_ranking_request(custom_id: str, group_data: list, *, remaining: int,
             )
 
     headline_block = '\n'.join(headline_lines)
-
-    is_late = remaining <= 40
-    if VERBOSE:
-        if is_late:
-            explanation_instruction = (
-                "\n\nAfter the ranking line, on a new line, explain your reasoning — "
-                "what made the top picks stand out and what held others back (3-5 sentences)."
-            )
-        else:
-            explanation_instruction = (
-                "\n\nAfter the ranking line, on a new line, briefly note what made "
-                "your top pick stand out (1 sentence)."
-            )
-        max_tokens = 600 if is_late else 400
-    else:
-        explanation_instruction = ""
-        # Headroom in case the model insists on writing preamble before the answer —
-        # parser handles preamble fine but only if the answer line isn't truncated.
-        max_tokens = 500 if is_late else 300
-
     valid_max = chr(ord('A') + len(group_data) - 1)
-    lens_block = f"\n\nJUDGING EMPHASIS FOR THIS PASS: {lens}" if lens else ""
-    prompt = f"""Rank these satirical headlines from best to worst.{lens_block}
+
+    if pick3:
+        explanation_instruction = (
+            "\n\nAfter the picks line, on a new line, briefly note what made "
+            "your picks stand out (1 sentence)."
+        ) if VERBOSE else ""
+        max_tokens = 300
+        prompt = f"""Pick the 3 best satirical headlines from this group. Only your picks matter — do not rank them against each other, and do not rank the rest.
+
+{headline_block}
+
+OUTPUT FORMAT (strict):
+- First line of your response is your picks: exactly 3 letters from A through {valid_max}, comma-separated, in any order. Nothing else on that line.
+- Correct: D, A, F
+- Incorrect: "The three best are: D, A, F"
+- Do NOT add preamble. Do NOT explain unless explicitly asked below. Start your response with a letter.{explanation_instruction}"""
+    else:
+        is_late = remaining <= 40
+        if VERBOSE:
+            if is_late:
+                explanation_instruction = (
+                    "\n\nAfter the ranking line, on a new line, explain your reasoning — "
+                    "what made the top picks stand out and what held others back (3-5 sentences)."
+                )
+            else:
+                explanation_instruction = (
+                    "\n\nAfter the ranking line, on a new line, briefly note what made "
+                    "your top pick stand out (1 sentence)."
+                )
+            max_tokens = 600 if is_late else 400
+        else:
+            explanation_instruction = ""
+            # Headroom in case the model insists on writing preamble before the answer —
+            # parser handles preamble fine but only if the answer line isn't truncated.
+            max_tokens = 500 if is_late else 300
+
+        lens_block = f"\n\nJUDGING EMPHASIS FOR THIS PASS: {lens}" if lens else ""
+        prompt = f"""Rank these satirical headlines from best to worst.{lens_block}
 
 {headline_block}
 
@@ -672,6 +731,47 @@ OUTPUT FORMAT (strict):
     if effort:
         params["output_config"] = {"effort": effort}
     return {"custom_id": custom_id, "params": params}
+
+
+def _parse_pick3(response_text: str, group_size: int) -> list:
+    """
+    Extract the 3 winning letters from a pick-3 judge response and map them to
+    group indices. Missing picks are filled with random unpicked indices (same
+    degradation spirit as _parse_ranking); a fully unparseable response yields
+    3 random picks.
+    """
+    valid_max = chr(ord('A') + group_size - 1)
+    picks = []
+    seen = set()
+
+    def _take(letters):
+        for letter in letters:
+            if len(letter) == 1 and 'A' <= letter <= valid_max:
+                index = ord(letter) - ord('A')
+                if index not in seen:
+                    picks.append(index)
+                    seen.add(index)
+
+    # First pass: a comma-separated picks line ("D, A, F"), possibly after preamble.
+    for line in response_text.strip().split('\n'):
+        letters = [c.strip().upper() for c in line.split(',')]
+        if len([l for l in letters if len(l) == 1 and 'A' <= l <= valid_max]) >= 2:
+            _take(letters)
+            break
+
+    # Second pass: one letter per line ("D\nA\nF").
+    if not picks:
+        _take([line.strip().upper() for line in response_text.strip().split('\n')])
+
+    want = min(3, group_size)
+    if len(picks) < want:
+        print(f"Pick-3 response short {len(picks)}/{want}, filling randomly: "
+              f"{response_text[:120]}")
+        rest = [i for i in range(group_size) if i not in seen]
+        random.shuffle(rest)
+        picks.extend(rest[:want - len(picks)])
+
+    return picks[:want]
 
 
 def _parse_ranking(response_text: str, group_size: int) -> tuple:
