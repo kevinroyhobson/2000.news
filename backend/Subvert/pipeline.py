@@ -51,11 +51,9 @@ langfuse = get_client()
 
 # =============================================================================
 # MODEL CONFIGURATION
-# Configure via environment variables. All calls go through the Anthropic
-# Batch API (the old per-stage provider switch is gone — Gemini has no
-# equivalent surface here).
-#
-# Anthropic models: claude-haiku-4-5, claude-sonnet-5, claude-opus-4-8
+# Set per stage via environment variables. Every call runs through the
+# Anthropic Batch API, so models must be Anthropic:
+# claude-haiku-4-5, claude-sonnet-5, claude-opus-4-8
 # =============================================================================
 
 BRAINSTORM_MODEL = os.getenv("BRAINSTORM_MODEL", "claude-opus-4-8")
@@ -404,10 +402,10 @@ def save_headlines(state: dict) -> dict:
 
 
 def _headline_id(story_id: str, angle_index: int, headline_index: int) -> str:
-    """Deterministic id per (story, angle, position) so pipeline retries
-    overwrite the same items instead of duplicating them. Overwrites arrive
-    on the SubvertedHeadlines stream as MODIFY, which the Tournament trigger
-    filters out — only first-time INSERTs kick a tournament."""
+    """Deterministic per (story, angle, position): a retried pipeline step
+    overwrites its earlier writes instead of duplicating them, and the
+    overwrite reaches the headline stream as MODIFY, which the tournament
+    trigger ignores."""
     seed = f"{story_id}#{angle_index}#{headline_index}"
     return hashlib.sha1(seed.encode()).hexdigest()[:8]
 

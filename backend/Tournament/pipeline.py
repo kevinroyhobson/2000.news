@@ -11,15 +11,15 @@ Each LLM round is one Anthropic message batch (50% of standard price):
                     -> finalize                                    (release lock / self-restart)
 
 Every task receives {"action": ..., "state": {...}} and returns the full
-updated state. State carries only headline *references* ({"d": day, "id":
-headline_id}); text is re-read from DynamoDB when prompts are built, keeping
+updated state. State carries only headline *references* ({"day": ...,
+"id": ...}); text is re-read from DynamoDB when prompts are built, keeping
 execution state far below the 256KB limit:
 
     {
       "day": "20260701", "mode": "same_day"|"cross_day", "batch_num": 3,
       "phase": "elimination"|"final"|"skip",
       "groups": [[ref, ...], ...], "final_group": [ref, ...],
-      "elim": [[{**ref, "pos": 4}, ...] per round],
+      "eliminated_rounds": [[{**ref, "pos": 4}, ...] per round],
       "remaining": 120, "round_num": 2,
       "batch": {batch_id, status, polls, timed_out}
     }
@@ -29,14 +29,13 @@ Ranking system:
   ensemble judge (craft / self-contained / impact lenses) and merged by Borda
   count.
 - Mass-cut rounds (same-day rounds whose losers all land below the top-64
-  survivor line, i.e. 3 * num_groups >= 64): the judge picks the best 3 per
-  group, unordered, at high effort. Those losers' Rank is REMOVEd as
-  non-survivors, so a full ordering bought nothing — pick-3 spends the
-  deliberation on the only irreversible decision (the cut) instead.
-  Non-picked headlines record a tied position, which is never published.
+  survivor line): the judge picks the best 3 per group, unordered, at high
+  effort. Those losers' ranks are discarded, so deliberation goes entirely to
+  the cut — the tournament's one irreversible decision. Non-picked headlines
+  record a tied position.
 - All other elimination rounds: full 1-through-N group ranking at low effort,
   because their losers' positions are published (same-day survivor ranks up
-  to 64; every cross-day loser gets a CrossDayRank, which drives /today).
+  to 64; every cross-day loser's CrossDayRank drives /today).
 """
 
 import datetime
@@ -69,22 +68,19 @@ SURVIVOR_COUNT = 64
 VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
-# Thinking depth per round type. Mass-cut rounds (see _use_pick3) run pick-3
-# at high effort: the cut is the only irreversible decision, and a 3-letter
-# answer spends its thinking on that instead of ordering a tail nobody reads.
-# Other elimination rounds keep the full low-effort ranking because their
-# loser positions are published. The final runs full ranking at high. All are
-# passed explicitly so behavior is pinned even if the API's default effort
-# changes. effort requires Sonnet 4.6+/Opus — remove it before pointing
-# MODEL_ELIMINATION at Haiku.
+# Thinking depth per round type: mass-cut rounds (see _use_pick3) run pick-3
+# at high effort because the cut is the only irreversible decision, full-rank
+# elimination rounds run low because a coarse ordering is enough, and the
+# final runs high. Passed explicitly so behavior is pinned even if the API's
+# default effort changes. effort requires Sonnet 4.6+/Opus — remove it before
+# pointing MODEL_ELIMINATION at Haiku.
 EFFORT_CUT = os.getenv("TOURNAMENT_CUT_EFFORT", "high")
 EFFORT_ELIMINATION = os.getenv("TOURNAMENT_ELIMINATION_EFFORT", "low")
 EFFORT_FINAL = os.getenv("TOURNAMENT_FINAL_EFFORT", "high")
-# Adaptive thinking (Sonnet 5 elimination + Opus 4.8 final) emits reasoning
-# tokens before the answer, all counted against max_tokens. Floor every call's
-# budget so a long think can't truncate the ranking line. It's a ceiling, not a
-# target — only tokens actually generated are billed — so headroom is free
-# insurance. Raise via env if a ranking ever truncates mid-think.
+# Adaptive thinking counts its reasoning tokens against max_tokens, so every
+# judge call gets at least this much headroom ahead of the answer line. It's
+# a ceiling, not a target — only generated tokens are billed. Raise via env
+# if a ranking ever truncates mid-think.
 THINKING_MAX_TOKENS_FLOOR = int(os.getenv("TOURNAMENT_MAX_TOKENS_FLOOR", "8000"))
 
 # The final group is ranked once per ensemble judge, each pass led by a
@@ -120,12 +116,10 @@ def get_anthropic_client():
 
 
 # ---------------------------------------------------------------------------
-# System prompt for prompt caching.
-# Cache minimums: Opus 4.x = 4096 tokens, Sonnet 4.5 = 1024, Sonnet 4.6 = 2048.
-# After we append rotated outstanding-headline exemplars, the prompt clears
-# all thresholds. Requests inside one batch process concurrently, so cache
-# hits are best-effort — but the marker costs nothing when it misses, and the
-# 50% batch discount applies either way.
+# System prompt, cached via cache_control. With the appended exemplars it
+# clears every model's minimum cacheable prefix (Opus 4.x: 4096 tokens,
+# Sonnet 4.6: 2048). Requests inside one batch process concurrently, so cache
+# hits are best-effort; the marker costs nothing on a miss.
 # ---------------------------------------------------------------------------
 TOURNAMENT_SYSTEM_PROMPT = """You are a veteran comedy editor judging satirical news headlines in the style of The Onion and SimCity 2000's newspaper ticker. Your job is to rank headlines from best to worst based on craft and humor. You have decades of experience in satirical journalism and know exactly what separates a headline that gets a polite chuckle from one that makes coffee come out of someone's nose.
 
@@ -286,15 +280,15 @@ def load_candidates(state: dict) -> dict:
 
     if len(new_headlines) < 2 and not previous_survivors:
         print("Not enough new headlines for tournament")
-        # Rank the lone headline so it stops counting as "new" (otherwise
-        # finalize's re-check would restart the pipeline forever).
+        # Ranking the lone headline marks it processed; finalize restarts the
+        # pipeline whenever unprocessed headlines remain.
         update_survivors(day, [(1, new_headlines[0]['headline_id'])], batch_num, survived=True)
         return {**state, "phase": "skip", "batch_num": batch_num}
 
     print(f"Tournament batch #{batch_num}")
     candidates = new_headlines + previous_survivors
     random.shuffle(candidates)
-    refs = [{"d": day, "id": h['headline_id']} for h in candidates]
+    refs = [{"day": day, "id": h['headline_id']} for h in candidates]
     return {**state, "batch_num": batch_num, **_stage_rounds(refs)}
 
 
@@ -303,10 +297,10 @@ def _stage_rounds(refs: list) -> dict:
     the final (<=20 candidates)."""
     if len(refs) <= 20:
         return {"phase": "final", "final_group": refs, "groups": [],
-                "elim": [], "remaining": len(refs), "round_num": 1}
+                "eliminated_rounds": [], "remaining": len(refs), "round_num": 1}
     num_groups = max(1, round(len(refs) / 15))
     return {"phase": "elimination", "groups": distribute_into_groups(refs, num_groups),
-            "final_group": [], "elim": [], "remaining": len(refs), "round_num": 1}
+            "final_group": [], "eliminated_rounds": [], "remaining": len(refs), "round_num": 1}
 
 
 # ---------------------------------------------------------------------------
@@ -314,22 +308,21 @@ def _stage_rounds(refs: list) -> dict:
 # ---------------------------------------------------------------------------
 
 def _use_pick3(state: dict) -> bool:
-    """Pick-3 is safe only when every loser of the round is guaranteed to
-    land below the published-rank line, because pick-3 losers tie at one rank.
-    All 3*num_groups winners of a round outrank all of its losers (each winner
-    either reaches the final or is eliminated in a later round, and later
-    rounds rank first), so same-day losers are unpublishable — Rank REMOVEd as
-    non-survivors — iff 3*num_groups >= SURVIVOR_COUNT. Cross-day publishes
-    CrossDayRank for the whole pool, so cross-day rounds always full-rank
-    (today's pool sizes make them terminal single rounds anyway)."""
+    """Pick-3 losers all tie at one position, so pick-3 is safe only when
+    every loser of the round is guaranteed to stay unpublished. A round's
+    3 * num_groups winners all outrank its losers (each winner either reaches
+    the final or is eliminated in a later, higher-ranked round), so the losers
+    stay below the survivor line iff 3 * num_groups >= SURVIVOR_COUNT.
+    Cross-day rounds always full-rank because every pool member's
+    CrossDayRank is published."""
     return state["mode"] == "same_day" and 3 * len(state["groups"]) >= SURVIVOR_COUNT
 
 
 def submit_round(state: dict) -> dict:
     requests = _build_round_requests(state)
-    mode = "pick3" if _use_pick3(state) else "full_rank"
+    judge_mode = "pick3" if _use_pick3(state) else "full_rank"
     print(f"--- Round {state['round_num']} ({state['remaining']} headlines, "
-          f"{len(state['groups'])} groups, mode={state['mode']}, judge={mode}) ---")
+          f"{len(state['groups'])} groups, mode={state['mode']}, judge={judge_mode}) ---")
     return {**state, "batch": submit_batch(get_anthropic_client(), requests)}
 
 
@@ -340,7 +333,7 @@ def _build_round_requests(state: dict) -> list:
     return [
         _build_ranking_request(
             f"r{state['round_num']}-g{i}",
-            [lookup[(ref["d"], ref["id"])] for ref in group],
+            [lookup[(ref["day"], ref["id"])] for ref in group],
             remaining=state["remaining"],
             model=MODEL_ELIMINATION,
             effort=EFFORT_CUT if pick3 else EFFORT_ELIMINATION,
@@ -392,9 +385,8 @@ def process_round(state: dict) -> dict:
             picked = set(order[:3])
             group_winners = [group[j] for j in order[:3]]
             winners.extend(group_winners)
-            # Non-picked headlines tie at position 3. _use_pick3 guarantees
-            # this round's losers all rank below the survivor line, so the
-            # tie is never visible on the site.
+            # All losers of a pick-3 round tie; _use_pick3 guarantees the tie
+            # stays below the published ranks.
             for j, ref in enumerate(group):
                 if j not in picked:
                     round_eliminated.append({**ref, "pos": 3})
@@ -405,19 +397,19 @@ def process_round(state: dict) -> dict:
             for pos, ref in enumerate(ordered[3:], start=3):
                 round_eliminated.append({**ref, "pos": pos})
 
-        winner_preview = [lookup[(ref["d"], ref["id"])]["headline"][:40] for ref in group_winners]
+        winner_preview = [lookup[(ref["day"], ref["id"])]["headline"][:40] for ref in group_winners]
         print(f"  Group {i} ({len(group)}): winners={winner_preview}")
 
-    elim = state["elim"] + [round_eliminated]
+    eliminated_rounds = state["eliminated_rounds"] + [round_eliminated]
     random.shuffle(winners)
 
     if len(winners) > 20:
         num_groups = max(1, round(len(winners) / 15))
-        return {**state, "phase": "elimination", "elim": elim,
+        return {**state, "phase": "elimination", "eliminated_rounds": eliminated_rounds,
                 "groups": distribute_into_groups(winners, num_groups),
                 "remaining": len(winners), "round_num": state["round_num"] + 1}
 
-    return {**state, "phase": "final", "elim": elim, "groups": [],
+    return {**state, "phase": "final", "eliminated_rounds": eliminated_rounds, "groups": [],
             "final_group": winners, "remaining": len(winners),
             "round_num": state["round_num"] + 1}
 
@@ -435,7 +427,7 @@ def submit_final(state: dict) -> dict:
 def _build_final_requests(state: dict) -> list:
     group_refs = state["final_group"]
     lookup = _fetch_headline_lookup(group_refs)
-    group_data = [lookup[(ref["d"], ref["id"])] for ref in group_refs]
+    group_data = [lookup[(ref["day"], ref["id"])] for ref in group_refs]
     cross_day = state["mode"] == "cross_day"
 
     n_judges = min(FINAL_ENSEMBLE_SIZE, len(FINAL_ENSEMBLE_LENSES))
@@ -486,9 +478,9 @@ def process_final(state: dict) -> dict:
         orderings = [fallback]
 
     if len(orderings) > 1:
-        judge_picks = [lookup[(o[0]["d"], o[0]["id"])]["headline"][:40] for o in orderings]
+        judge_picks = [lookup[(o[0]["day"], o[0]["id"])]["headline"][:40] for o in orderings]
         final_ordered = _borda_aggregate(group, orderings)
-        consensus = [lookup[(ref["d"], ref["id"])]["headline"][:40] for ref in final_ordered[:3]]
+        consensus = [lookup[(ref["day"], ref["id"])]["headline"][:40] for ref in final_ordered[:3]]
         print(f"  Ensemble #1 picks per judge: {judge_picks}")
         print(f"  Ensemble consensus top 3: {consensus}")
     else:
@@ -501,7 +493,7 @@ def process_final(state: dict) -> dict:
     for ref in final_ordered:
         headlines_by_rank[current_rank] = [ref]
         current_rank += 1
-    for round_eliminated in reversed(state["elim"]):
+    for round_eliminated in reversed(state["eliminated_rounds"]):
         entries = sorted(round_eliminated, key=lambda x: x["pos"])
         for _pos, pos_group in groupby(entries, key=lambda x: x["pos"]):
             headlines_by_rank[current_rank] = list(pos_group)
@@ -522,7 +514,7 @@ def _borda_aggregate(group: list, orderings: list) -> list:
     a uniformly mediocre one), then by the first judge's order for determinism.
     """
     def key(ref):
-        return (ref["d"], ref["id"])
+        return (ref["day"], ref["id"])
 
     score = {key(ref): 0 for ref in group}
     best = {key(ref): len(group) for ref in group}
@@ -557,15 +549,14 @@ def _write_same_day_ranks(day: str, headlines_by_rank: dict, batch_num: int):
 
 def _write_cross_day_ranks(day: str, headlines_by_rank: dict):
     """Replace CrossDayRank across the 3-day window. Stale ranks are cleared
-    here — immediately before the new writes — rather than at pool-load time
-    like the old synchronous code, so the site keeps serving the previous
-    cross-day ordering during the hours the batch tournament runs."""
+    only now, at write time, so the previous ordering keeps serving the site
+    for the hours the tournament runs."""
     clear_cross_day_ranks([day, get_day_offset(day, -1), get_day_offset(day, -2)])
     updated = 0
     for rank in sorted(headlines_by_rank):
         for ref in headlines_by_rank[rank]:
             _headlines_table.update_item(
-                Key={'YearMonthDay': ref["d"], 'HeadlineId': ref["id"]},
+                Key={'YearMonthDay': ref["day"], 'HeadlineId': ref["id"]},
                 UpdateExpression='SET CrossDayRank = :rank',
                 ExpressionAttributeValues={':rank': rank},
             )
@@ -590,9 +581,9 @@ def load_cross_day(state: dict) -> dict:
     yesterday_top = get_top_n_for_day(yesterday, 16)
     day_before_top = get_top_n_for_day(day_before, 16)
 
-    refs = ([{"d": day, "id": h['headline_id']} for h in today_pool]
-            + [{"d": yesterday, "id": h['headline_id']} for h in yesterday_top]
-            + [{"d": day_before, "id": h['headline_id']} for h in day_before_top])
+    refs = ([{"day": day, "id": h['headline_id']} for h in today_pool]
+            + [{"day": yesterday, "id": h['headline_id']} for h in yesterday_top]
+            + [{"day": day_before, "id": h['headline_id']} for h in day_before_top])
     print(f"Cross-day pool: {len(today_pool)} today + {len(yesterday_top)} yesterday "
           f"+ {len(day_before_top)} day-before = {len(refs)}")
 
@@ -608,9 +599,9 @@ def load_cross_day(state: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def finalize(state: dict) -> dict:
-    """Release the day lock; if headlines landed while this run was in flight
-    (their stream events hit the lock and bailed), start a fresh execution so
-    they don't wait for the next fetch cycle."""
+    """Release the day lock, then start a fresh execution if headlines
+    arrived while this run was in flight — their stream events found the lock
+    held and exited, leaving this run responsible for them."""
     day = state["day"]
     tournament_lock.release(day)
 
@@ -631,7 +622,7 @@ def finalize(state: dict) -> dict:
 
 def abort(state: dict) -> dict:
     """Catch-path cleanup: release the day lock so the next stream event can
-    start a fresh run instead of waiting out the lock expiry."""
+    start a fresh run immediately."""
     day = state.get("day")
     if day:
         tournament_lock.release(day)
@@ -702,8 +693,7 @@ OUTPUT FORMAT (strict):
             max_tokens = 600 if is_late else 400
         else:
             explanation_instruction = ""
-            # Headroom in case the model insists on writing preamble before the answer —
-            # parser handles preamble fine but only if the answer line isn't truncated.
+            # Headroom for preamble the parser tolerates ahead of the answer line.
             max_tokens = 500 if is_late else 300
 
         lens_block = f"\n\nJUDGING EMPHASIS FOR THIS PASS: {lens}" if lens else ""
@@ -720,10 +710,7 @@ OUTPUT FORMAT (strict):
 
     params = {
         "model": model,
-        # Floored so a long adaptive think can't truncate the ranking line.
         "max_tokens": max(max_tokens, THINKING_MAX_TOKENS_FLOOR),
-        # Adaptive thinking on both judges. display defaults to "omitted" —
-        # we only read the answer text block, never the reasoning.
         "thinking": {"type": "adaptive"},
         "system": [{
             "type": "text",
@@ -737,41 +724,48 @@ OUTPUT FORMAT (strict):
     return {"custom_id": custom_id, "params": params}
 
 
+def _label_index(token: str, group_size: int):
+    """Map a group letter label ("A", "B", ...) to its index, or None."""
+    if len(token) == 1 and 'A' <= token <= chr(ord('A') + group_size - 1):
+        return ord(token) - ord('A')
+    return None
+
+
+def _to_indices(letters: list, group_size: int) -> list:
+    """Map letter labels to group indices, dropping non-labels and duplicates."""
+    indices = []
+    for letter in letters:
+        index = _label_index(letter, group_size)
+        if index is not None and index not in indices:
+            indices.append(index)
+    return indices
+
+
 def _parse_pick3(response_text: str, group_size: int) -> list:
     """
-    Extract the 3 winning letters from a pick-3 judge response and map them to
-    group indices. Missing picks are filled with random unpicked indices (same
-    degradation spirit as _parse_ranking); a fully unparseable response yields
-    3 random picks.
+    Map the winning letters of a pick-3 judge response to group indices.
+    Missing picks are filled with random unpicked indices; a fully
+    unparseable response yields random picks.
     """
-    valid_max = chr(ord('A') + group_size - 1)
-    picks = []
-    seen = set()
+    lines = response_text.strip().split('\n')
 
-    def _take(letters):
-        for letter in letters:
-            if len(letter) == 1 and 'A' <= letter <= valid_max:
-                index = ord(letter) - ord('A')
-                if index not in seen:
-                    picks.append(index)
-                    seen.add(index)
-
-    # First pass: a comma-separated picks line ("D, A, F"), possibly after preamble.
-    for line in response_text.strip().split('\n'):
-        letters = [c.strip().upper() for c in line.split(',')]
-        if len([l for l in letters if len(l) == 1 and 'A' <= l <= valid_max]) >= 2:
-            _take(letters)
+    # The picks line is comma-separated ("D, A, F"), possibly after preamble.
+    letters = []
+    for line in lines:
+        tokens = [token.strip().upper() for token in line.split(',')]
+        if len(_to_indices(tokens, group_size)) >= 2:
+            letters = tokens
             break
+    if not letters:
+        # One letter per line ("D\nA\nF") also counts.
+        letters = [line.strip().upper() for line in lines]
 
-    # Second pass: one letter per line ("D\nA\nF").
-    if not picks:
-        _take([line.strip().upper() for line in response_text.strip().split('\n')])
-
+    picks = _to_indices(letters, group_size)
     want = min(3, group_size)
     if len(picks) < want:
         print(f"Pick-3 response short {len(picks)}/{want}, filling randomly: "
               f"{response_text[:120]}")
-        rest = [i for i in range(group_size) if i not in seen]
+        rest = [i for i in range(group_size) if i not in picks]
         random.shuffle(rest)
         picks.extend(rest[:want - len(picks)])
 
@@ -780,38 +774,30 @@ def _parse_pick3(response_text: str, group_size: int) -> list:
 
 def _parse_ranking(response_text: str, group_size: int) -> tuple:
     """
-    Extract the ranked letter line from a judge response and map it to group
-    indices. Returns (ordered_indices, explanation). Indices the judge skipped
-    are appended in random order; a fully unparseable response degrades to a
-    random permutation (same behavior as the old synchronous path).
+    Map the ranked letter line of a judge response to group indices.
+    Returns (ordered_indices, explanation). Indices the judge skipped are
+    appended in random order; a fully unparseable response degrades to a
+    random permutation.
     """
-    valid_max = chr(ord('A') + group_size - 1)
     lines = response_text.strip().split('\n')
 
-    valid = []
+    # The ranking line carries at least half the expected letters; anything
+    # before it is preamble, anything after it is explanation.
+    ranked_letters = []
     explanation_lines = []
     for i, line in enumerate(lines):
-        letters = [c.strip().upper() for c in line.split(',')]
-        candidates = [l for l in letters if len(l) == 1 and 'A' <= l <= valid_max]
-        if len(candidates) >= group_size // 2 and not valid:
-            # This line looks like the ranking — at least half the expected letters
-            valid = candidates
+        tokens = [token.strip().upper() for token in line.split(',')]
+        if not ranked_letters and len(_to_indices(tokens, group_size)) >= group_size // 2:
+            ranked_letters = tokens
             explanation_lines = lines[i + 1:]
     explanation = '\n'.join(explanation_lines).strip()
 
-    order = []
-    seen = set()
-    for letter in valid:
-        index = ord(letter) - ord('A')
-        if index not in seen:
-            order.append(index)
-            seen.add(index)
-
-    unmentioned = [i for i in range(group_size) if i not in seen]
+    order = _to_indices(ranked_letters, group_size)
+    unmentioned = [i for i in range(group_size) if i not in order]
     random.shuffle(unmentioned)
     order.extend(unmentioned)
 
-    if not valid:
+    if not ranked_letters:
         print(f"Unparseable ranking response, shuffling: {response_text[:120]}")
         random.shuffle(order)
 
@@ -854,11 +840,7 @@ def get_headlines_for_day(day_key: str) -> list:
     return [{
         'headline': item['Headline'],
         'headline_id': item['HeadlineId'],
-        'angle': item.get('Angle', ''),
-        'angle_setup': item.get('AngleSetup', ''),
         'original_headline': item.get('OriginalHeadline', ''),
-        'story_id': item.get('StoryId', ''),
-        'year_month_day': item['YearMonthDay'],
         'tournament_batch': item.get('TournamentBatch'),
         'survived': item.get('Survived'),
         'rank': item.get('Rank'),
@@ -867,19 +849,18 @@ def get_headlines_for_day(day_key: str) -> list:
 
 def _fetch_headline_lookup(refs: list) -> dict:
     """Re-read headline data for a set of refs, keyed by (day, headline_id).
-    A headline deleted mid-run (near-impossible: the curation CLI runs
-    offline) gets a stub so group letter positions stay aligned between the
-    submit and process rebuilds."""
+    A headline deleted mid-run gets a stub so group letter positions stay
+    aligned between the submit-time and process-time request builds."""
     lookup = {}
-    for day in {ref["d"] for ref in refs}:
+    for day in {ref["day"] for ref in refs}:
         for h in get_headlines_for_day(day):
             lookup[(day, h['headline_id'])] = h
     for ref in refs:
-        key = (ref["d"], ref["id"])
+        key = (ref["day"], ref["id"])
         if key not in lookup:
             print(f"[tournament] Headline {key} vanished mid-run — using stub")
             lookup[key] = {'headline': '(deleted)', 'headline_id': ref["id"],
-                           'original_headline': '', 'year_month_day': ref["d"]}
+                           'original_headline': ''}
     return lookup
 
 

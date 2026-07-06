@@ -1,12 +1,10 @@
 """
-Per-day advisory lock for tournament runs.
+Per-day advisory lock that serializes tournament pipeline executions.
 
 Stored as a META item in SubvertedHeadlines (YearMonthDay='META' keeps it out
-of real day queries, matching the outstanding_exemplars pattern). The lock
-serializes tournament pipeline executions for a day — replacing the old
-ReservedConcurrentExecutions=1 on the Tournament Lambda — and carries an
-expiry so a crashed execution can't wedge the day. The state machine's Catch
-path releases the lock on failure; the expiry is the backstop.
+of day queries, alongside the outstanding_exemplars item). The state machine
+releases the lock on success and on its error path; the expiry lets a new
+run take over after a crash that skipped both.
 """
 
 import time

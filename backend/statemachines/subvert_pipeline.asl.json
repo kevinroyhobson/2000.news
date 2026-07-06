@@ -1,5 +1,5 @@
 {
-  "Comment": "Subvert pipeline: brainstorm batch -> generate batch -> save headlines. Each LLM stage is one Anthropic Message Batch (50% token pricing); the poll loops wait on batch completion. After ~3h (90 polls x 120s) a stage is marked timed_out and the next task cancels the batch and falls back to synchronous API calls, so a slow batch bounds latency instead of stranding stories.",
+  "Comment": "Subvert pipeline: brainstorm batch -> generate batch -> save headlines. Each LLM stage is one Anthropic Message Batch (50% token pricing); the poll loops wait on batch completion. After ~3h (90 polls x 120s) a stage is marked timed_out; the next task then cancels the batch and re-runs its requests synchronously, bounding the stage's latency.",
   "StartAt": "SubmitBrainstorm",
   "States": {
     "SubmitBrainstorm": {

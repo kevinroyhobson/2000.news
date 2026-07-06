@@ -3,14 +3,12 @@ SubvertedHeadlines-stream trigger for the Tournament pipeline.
 
 Thin starter: acquires the per-day tournament lock, then starts one
 TournamentPipeline Step Functions execution. All ranking happens inside the
-state machine through the Anthropic Batch API. If a tournament for the day is
-already in flight, this exits — the running execution re-checks for new
-headlines before releasing the lock (see pipeline.finalize), so nothing is
-stranded. The lock replaces the old ReservedConcurrentExecutions=1.
+state machine through the Anthropic Batch API. When a tournament for the day
+is already in flight, this exits — the running execution re-checks for new
+headlines before releasing the lock (see pipeline.finalize).
 
-The stream records themselves are ignored: like the old handler, this only
-treats the event as a "new headlines exist" signal and lets the pipeline
-query the day's table state.
+The stream records themselves are ignored: the event is only a signal that
+new headlines exist, and the pipeline queries the day's table state.
 """
 
 import datetime

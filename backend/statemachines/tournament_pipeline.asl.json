@@ -1,5 +1,5 @@
 {
-  "Comment": "Tournament pipeline: elimination-round batches -> final-ensemble batch -> write ranks, then the same flow again for the cross-day tournament. Every LLM round is one Anthropic Message Batch (one request per group). Poll loops give a batch ~3h (90 polls x 120s) before marking it timed_out, which makes the next task cancel the batch and fall back to synchronous calls. Every task Catch releases the per-day tournament lock so a failed run can't wedge the day.",
+  "Comment": "Tournament pipeline: elimination-round batches -> final-ensemble batch -> write ranks, then the same flow again for the cross-day tournament. Every LLM round is one Anthropic Message Batch (one request per group). Poll loops give a batch ~3h (90 polls x 120s) before marking it timed_out; the next task then cancels the batch and re-runs its requests synchronously. Every task Catch routes through ReleaseLockOnError, which frees the per-day tournament lock on failure.",
   "StartAt": "LoadCandidates",
   "States": {
     "LoadCandidates": {

@@ -55,9 +55,6 @@ GENERATE_MODEL=claude-haiku-4-5-20251001
 - `claude-sonnet-5` - Smarter, more expensive
 - `claude-opus-4-8` - Best, most expensive
 
-(The old per-stage Gemini provider switch is gone — the Batch API is
-Anthropic-only, and both stages were already on Claude in production.)
-
 ## Local testing
 
 ```bash

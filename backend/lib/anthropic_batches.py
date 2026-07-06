@@ -15,8 +15,8 @@ Functions. The pattern is always:
 
 Because of step 3, callers must be able to rebuild the request list they
 submitted. Requests are rebuilt rather than carried through Step Functions
-state to stay well under the 256KB execution-state limit (the cached system
-prompts alone would blow it).
+state because the cached system prompts alone would exceed the 256KB
+execution-state limit.
 """
 
 import time
@@ -68,9 +68,9 @@ def _cancel_and_drain(client, batch_id, timeout_seconds=180) -> bool:
     return False
 
 
-def extract_text(message) -> str:
-    """First text block of a Message. With thinking enabled, content[0] can be
-    a (possibly empty) thinking block, so filter by type instead of indexing."""
+def _extract_text(message) -> str:
+    """The answer lives in the first text block; with thinking enabled, the
+    content list can open with a (possibly empty) thinking block."""
     for block in message.content:
         if getattr(block, "type", None) == "text":
             return block.text
@@ -112,7 +112,7 @@ def resolve_batch(client, batch, requests, sync_max_workers=8) -> dict:
                 message = result.result.message
                 try:
                     resolved[result.custom_id] = {
-                        "text": extract_text(message),
+                        "text": _extract_text(message),
                         "usage": _usage_dict(message.usage),
                         "via": "batch",
                     }
@@ -137,7 +137,7 @@ def resolve_batch(client, batch, requests, sync_max_workers=8) -> dict:
                 try:
                     message = future.result()
                     resolved[custom_id] = {
-                        "text": extract_text(message),
+                        "text": _extract_text(message),
                         "usage": _usage_dict(message.usage),
                         "via": "sync",
                     }
