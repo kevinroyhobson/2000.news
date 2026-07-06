@@ -234,12 +234,12 @@ Resources:
         Variables:
           TOURNAMENT_MODEL_FINAL: claude-opus-4-8
           TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
-          # Thinking depth per round type. Mass-cut rounds (winners don't go
-          # straight to the final) ask for just the best 3, unordered, at high
-          # effort — the cut is the only irreversible decision and their loser
-          # positions are discarded anyway. The terminal elimination round
-          # keeps the full low-effort ranking because its loser positions are
-          # published (survivor ranks 16-64 / CrossDayRank). Final runs high.
+          # Thinking depth per round type. Mass-cut rounds (same-day rounds
+          # whose losers all land below the top-64 survivor line) ask for just
+          # the best 3, unordered, at high effort — the cut is the only
+          # irreversible decision and those losers' ranks are discarded.
+          # Rounds with publishable loser positions (survivor ranks up to 64,
+          # CrossDayRank) keep the full low-effort ranking. Final runs high.
           TOURNAMENT_CUT_EFFORT: "high"
           TOURNAMENT_ELIMINATION_EFFORT: "low"
           TOURNAMENT_FINAL_EFFORT: "high"

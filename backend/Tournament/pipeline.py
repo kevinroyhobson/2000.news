@@ -28,16 +28,15 @@ Ranking system:
 - Final group (<=20 remain): explicit 1-through-N ordering, ranked once per
   ensemble judge (craft / self-contained / impact lenses) and merged by Borda
   count.
-- Terminal elimination round (the one whose winners go to the final, i.e.
-  3 * num_groups <= 20): full 1-through-N group ranking at low effort — its
-  losers' positions are published (same-day ranks 16-64 straddle the survivor
-  line; the cross-day round's losers become CrossDayRank 19+, which drives
-  /today).
-- Mass-cut rounds (everything earlier): the judge picks the best 3 per group,
-  unordered, at high effort. Those rounds' loser positions land below the
-  survivor line and are discarded, so the old full ranking bought nothing —
-  pick-3 spends the deliberation on the only irreversible decision (the cut)
-  instead. Non-picked headlines record a tied position.
+- Mass-cut rounds (same-day rounds whose losers all land below the top-64
+  survivor line, i.e. 3 * num_groups >= 64): the judge picks the best 3 per
+  group, unordered, at high effort. Those losers' Rank is REMOVEd as
+  non-survivors, so a full ordering bought nothing — pick-3 spends the
+  deliberation on the only irreversible decision (the cut) instead.
+  Non-picked headlines record a tied position, which is never published.
+- All other elimination rounds: full 1-through-N group ranking at low effort,
+  because their losers' positions are published (same-day survivor ranks up
+  to 64; every cross-day loser gets a CrossDayRank, which drives /today).
 """
 
 import datetime
@@ -70,11 +69,11 @@ SURVIVOR_COUNT = 64
 VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
-# Thinking depth per round type. Mass-cut rounds run pick-3 at high effort:
-# the cut is the only irreversible decision, and a 3-letter answer spends its
-# thinking on that instead of ordering a tail nobody reads. The terminal
-# elimination round keeps the full low-effort ranking because its loser
-# positions are published. The final runs full ranking at high. All are
+# Thinking depth per round type. Mass-cut rounds (see _use_pick3) run pick-3
+# at high effort: the cut is the only irreversible decision, and a 3-letter
+# answer spends its thinking on that instead of ordering a tail nobody reads.
+# Other elimination rounds keep the full low-effort ranking because their
+# loser positions are published. The final runs full ranking at high. All are
 # passed explicitly so behavior is pinned even if the API's default effort
 # changes. effort requires Sonnet 4.6+/Opus — remove it before pointing
 # MODEL_ELIMINATION at Haiku.
@@ -314,16 +313,21 @@ def _stage_rounds(refs: list) -> dict:
 # Elimination rounds — one batch per round, one request per group
 # ---------------------------------------------------------------------------
 
-def _is_terminal_round(groups: list) -> bool:
-    """A round is terminal when its winners (3 per group) go straight to the
-    final. Terminal-round losers land at published ranks, so they get a full
-    ranking; earlier (mass-cut) rounds use pick-3."""
-    return 3 * len(groups) <= 20
+def _use_pick3(state: dict) -> bool:
+    """Pick-3 is safe only when every loser of the round is guaranteed to
+    land below the published-rank line, because pick-3 losers tie at one rank.
+    All 3*num_groups winners of a round outrank all of its losers (each winner
+    either reaches the final or is eliminated in a later round, and later
+    rounds rank first), so same-day losers are unpublishable — Rank REMOVEd as
+    non-survivors — iff 3*num_groups >= SURVIVOR_COUNT. Cross-day publishes
+    CrossDayRank for the whole pool, so cross-day rounds always full-rank
+    (today's pool sizes make them terminal single rounds anyway)."""
+    return state["mode"] == "same_day" and 3 * len(state["groups"]) >= SURVIVOR_COUNT
 
 
 def submit_round(state: dict) -> dict:
     requests = _build_round_requests(state)
-    mode = "full_rank" if _is_terminal_round(state["groups"]) else "pick3"
+    mode = "pick3" if _use_pick3(state) else "full_rank"
     print(f"--- Round {state['round_num']} ({state['remaining']} headlines, "
           f"{len(state['groups'])} groups, mode={state['mode']}, judge={mode}) ---")
     return {**state, "batch": submit_batch(get_anthropic_client(), requests)}
@@ -332,7 +336,7 @@ def submit_round(state: dict) -> dict:
 def _build_round_requests(state: dict) -> list:
     lookup = _fetch_headline_lookup([ref for group in state["groups"] for ref in group])
     cross_day = state["mode"] == "cross_day"
-    pick3 = not _is_terminal_round(state["groups"])
+    pick3 = _use_pick3(state)
     return [
         _build_ranking_request(
             f"r{state['round_num']}-g{i}",
@@ -348,13 +352,13 @@ def _build_round_requests(state: dict) -> list:
 
 
 def process_round(state: dict) -> dict:
-    """Collect a round's judgments: top 3 per group advance. In a terminal
-    (full-rank) round the rest record their intra-group finish position for
-    tier sub-ranking; in a mass-cut (pick-3) round they tie at position 3."""
+    """Collect a round's judgments: top 3 per group advance. In a full-rank
+    round the rest record their intra-group finish position for tier
+    sub-ranking; in a mass-cut (pick-3) round they tie at position 3."""
     requests = _build_round_requests(state)
     resolved = resolve_batch(get_anthropic_client(), state["batch"], requests)
     lookup = _fetch_headline_lookup([ref for group in state["groups"] for ref in group])
-    pick3 = not _is_terminal_round(state["groups"])
+    pick3 = _use_pick3(state)
 
     winners = []
     round_eliminated = []
@@ -388,9 +392,9 @@ def process_round(state: dict) -> dict:
             picked = set(order[:3])
             group_winners = [group[j] for j in order[:3]]
             winners.extend(group_winners)
-            # Non-picked headlines tie at position 3 — a mass-cut round's
-            # losers rank below the survivor line anyway, so the tie is never
-            # visible on the site.
+            # Non-picked headlines tie at position 3. _use_pick3 guarantees
+            # this round's losers all rank below the survivor line, so the
+            # tie is never visible on the site.
             for j, ref in enumerate(group):
                 if j not in picked:
                     round_eliminated.append({**ref, "pos": 3})
