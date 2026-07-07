@@ -188,10 +188,10 @@ Resources:
         - LambdaInvokePolicy:
             FunctionName: !Ref SubvertPipelineFunction
 
-  # Thin stream trigger: takes the per-day tournament lock (a META item in
+  # Thin stream trigger: takes the tournament lock (a META item in
   # SubvertedHeadlines) and starts one TournamentPipeline execution. A run
-  # already in flight re-checks for new headlines before releasing the lock,
-  # so headlines that arrive mid-run are still ranked.
+  # already in flight re-checks for unprocessed headlines before releasing
+  # the lock, so headlines that arrive mid-run are still ranked.
   Tournament:
     Type: AWS::Serverless::Function
     Properties:

@@ -17,7 +17,7 @@ execution state far below the 256KB limit:
 
     {
       "day": "20260701", "mode": "same_day"|"cross_day", "batch_num": 3,
-      "phase": "elimination"|"final"|"skip",
+      "phase": "elimination"|"final"|"skip", "lock_token": "...",
       "groups": [[ref, ...], ...], "final_group": [ref, ...],
       "eliminated_rounds": [[{**ref, "pos": 4}, ...] per round],
       "remaining": 120, "round_num": 2,
@@ -238,6 +238,9 @@ def handler(event, context):
         if action == "load_candidates":
             return load_candidates(state)
         if action == "check_batch":
+            # Each poll also extends the tournament lock, so it only expires
+            # if the execution dies.
+            tournament_lock.refresh(state["lock_token"])
             return check_batch_state(get_anthropic_client(), state)
         if action == "submit_round":
             return submit_round(state)
@@ -599,34 +602,51 @@ def load_cross_day(state: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def finalize(state: dict) -> dict:
-    """Release the day lock, then start a fresh execution if headlines
-    arrived while this run was in flight — their stream events found the lock
-    held and exited, leaving this run responsible for them."""
-    day = state["day"]
-    tournament_lock.release(day)
+    """Release the lock, then start a fresh execution if a day still has
+    unprocessed headlines — their stream events found the lock held and
+    exited, leaving this run responsible for them."""
+    tournament_lock.release(state["lock_token"])
 
-    new_headlines = [h for h in get_headlines_for_day(day)
-                     if h.get('tournament_batch') is None]
-    if new_headlines and tournament_lock.acquire(day):
-        execution = _sfn.start_execution(
-            stateMachineArn=os.environ["TOURNAMENT_STATE_MACHINE_ARN"],
-            name=f"{day}-rerun-{uuid.uuid4().hex[:8]}",
-            input=json.dumps({"day": day, "mode": "same_day"}),
-        )
-        print(f"{len(new_headlines)} new headlines arrived mid-run — "
-              f"started {execution['executionArn']}")
-        return {**state, "rerun": True}
+    days_needing_run = _days_with_unprocessed_headlines(state["day"])
+    if not days_needing_run:
+        return {**state, "rerun": False}
 
-    return {**state, "rerun": False}
+    lock_token = tournament_lock.acquire()
+    if lock_token is None:
+        return {**state, "rerun": False}
+
+    day = days_needing_run[0]
+    execution = _sfn.start_execution(
+        stateMachineArn=os.environ["TOURNAMENT_STATE_MACHINE_ARN"],
+        name=f"{day}-rerun-{uuid.uuid4().hex[:8]}",
+        input=json.dumps({"day": day, "mode": "same_day",
+                          "lock_token": lock_token}),
+    )
+    print(f"Headlines for {days_needing_run} arrived mid-run — "
+          f"started {execution['executionArn']}")
+    return {**state, "rerun": True}
+
+
+def _days_with_unprocessed_headlines(run_day: str) -> list:
+    """The lock is global, so a stream event for a new day can bail while a
+    run for the previous day is still going; checking today as well as the
+    run's own day covers that handoff."""
+    days = [run_day]
+    today = datetime.datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
+    if today != run_day:
+        days.append(today)
+    return [day for day in days
+            if any(h.get("tournament_batch") is None
+                   for h in get_headlines_for_day(day))]
 
 
 def abort(state: dict) -> dict:
-    """Catch-path cleanup: release the day lock so the next stream event can
+    """Catch-path cleanup: release the lock so the next stream event can
     start a fresh run immediately."""
-    day = state.get("day")
-    if day:
-        tournament_lock.release(day)
-        print(f"Released tournament lock for {day} after pipeline failure: "
+    lock_token = state.get("lock_token")
+    if lock_token:
+        tournament_lock.release(lock_token)
+        print(f"Released tournament lock after pipeline failure: "
               f"{state.get('error', {})}")
     return state
 
@@ -982,7 +1002,7 @@ if __name__ == "__main__":
     run_state = _run(run_state)
     if run_state["phase"] != "skip":
         run_state = _run(load_cross_day(run_state))
-    # No finalize here: locally we never took the day lock, and finalize would
+    # No finalize here: locally we never took the lock, and finalize would
     # try to start a Step Functions execution.
     print(f"Local tournament run for {day} complete")
     langfuse.flush()
