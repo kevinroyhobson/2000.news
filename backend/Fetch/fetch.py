@@ -1,11 +1,12 @@
 """
 Scheduled Lambda that fetches news stories from a mix of sources.
 
-Runs 4x/day. Each run fetches 22 stories total, distributed across 10 sources:
+Runs 4x/day. Each run fetches 23 stories total, distributed across 11 sources:
   - 1 advice  (newsdata.io targeted query for syndicated advice columns)
   - 2 newsdata entertainment
   - 2 newsdata wildcard
   - 3 ESPN top stories
+  - 1 bengals.com Geoff Hobson story
   - 3 NYT MostViewed
   - 3 NYT HomePage
   - 2 NYT Technology
@@ -33,11 +34,13 @@ MAX_API_CALLS_PER_SOURCE = 3
 #   'newsdata_category' -> newsdata.io /news with category=<category> (None = wildcard)
 #   'nyt'               -> rss.nytimes.com/services/xml/rss/nyt/<feed>.xml
 #   'espn'              -> www.espn.com/espn/rss/<feed>
+#   'bengals_hobson'    -> www.bengals.com/rss/news, Geoff Hobson stories only
 FETCH_PLAN = [
     {'label': 'advice',                 'n': 1, 'type': 'newsdata_query',    'query': ADVICE_QUERY},
     {'label': 'newsdata_entertainment', 'n': 2, 'type': 'newsdata_category', 'category': 'entertainment'},
     {'label': 'newsdata_wildcard',      'n': 2, 'type': 'newsdata_category', 'category': None},
     {'label': 'espn_top',               'n': 3, 'type': 'espn',              'feed': 'news'},
+    {'label': 'bengals_hobson',         'n': 1, 'type': 'bengals_hobson'},
     {'label': 'nyt_most_viewed',        'n': 3, 'type': 'nyt',               'feed': 'MostViewed'},
     {'label': 'nyt_homepage',           'n': 3, 'type': 'nyt',               'feed': 'HomePage'},
     {'label': 'nyt_technology',         'n': 2, 'type': 'nyt',               'feed': 'Technology'},
@@ -99,6 +102,9 @@ def _fetch_one(plan):
 
     if t == 'espn':
         return _fetch_rss(label, n, _rss.fetch_espn(plan['feed']))
+
+    if t == 'bengals_hobson':
+        return _fetch_rss(label, n, _rss.fetch_bengals_hobson())
 
     raise ValueError(f"Unknown fetch type: {t}")
 
