@@ -1,0 +1,437 @@
+{
+  "Comment": "Tournament pipeline: elimination-round batches -> final-ensemble batch -> write ranks, then the same flow again for the cross-day tournament. Every LLM round is one Anthropic Message Batch (one request per group). Poll loops give a batch ~3h (90 polls x 120s) before marking it timed_out; the next task then cancels the batch and re-runs its requests synchronously. Every task Catch routes through ReleaseLockOnError, which frees the tournament lock on failure.",
+  "StartAt": "LoadCandidates",
+  "States": {
+    "LoadCandidates": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "load_candidates",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "Next": "RouteWork"
+    },
+    "RouteWork": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.phase",
+          "StringEquals": "skip",
+          "Next": "Finalize"
+        },
+        {
+          "Variable": "$.phase",
+          "StringEquals": "final",
+          "Next": "SubmitFinal"
+        }
+      ],
+      "Default": "SubmitRound"
+    },
+    "SubmitRound": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "submit_round",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "Next": "WaitForRound"
+    },
+    "WaitForRound": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Next": "CheckRound"
+    },
+    "CheckRound": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "check_batch",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "Next": "IsRoundDone"
+    },
+    "IsRoundDone": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.batch.status",
+          "StringEquals": "ended",
+          "Next": "ProcessRound"
+        },
+        {
+          "Variable": "$.batch.polls",
+          "NumericGreaterThanEquals": 90,
+          "Next": "RoundTimedOut"
+        }
+      ],
+      "Default": "WaitForRound"
+    },
+    "RoundTimedOut": {
+      "Type": "Pass",
+      "Result": true,
+      "ResultPath": "$.batch.timed_out",
+      "Next": "ProcessRound"
+    },
+    "ProcessRound": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "process_round",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "Next": "RouteAfterRound"
+    },
+    "RouteAfterRound": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.phase",
+          "StringEquals": "final",
+          "Next": "SubmitFinal"
+        }
+      ],
+      "Default": "SubmitRound"
+    },
+    "SubmitFinal": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "submit_final",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "Next": "WaitForFinal"
+    },
+    "WaitForFinal": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Next": "CheckFinal"
+    },
+    "CheckFinal": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "check_batch",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "Next": "IsFinalDone"
+    },
+    "IsFinalDone": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.batch.status",
+          "StringEquals": "ended",
+          "Next": "ProcessFinal"
+        },
+        {
+          "Variable": "$.batch.polls",
+          "NumericGreaterThanEquals": 90,
+          "Next": "FinalTimedOut"
+        }
+      ],
+      "Default": "WaitForFinal"
+    },
+    "FinalTimedOut": {
+      "Type": "Pass",
+      "Result": true,
+      "ResultPath": "$.batch.timed_out",
+      "Next": "ProcessFinal"
+    },
+    "ProcessFinal": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "process_final",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "Next": "RouteAfterFinal"
+    },
+    "RouteAfterFinal": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.mode",
+          "StringEquals": "same_day",
+          "Next": "LoadCrossDay"
+        }
+      ],
+      "Default": "Finalize"
+    },
+    "LoadCrossDay": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "load_cross_day",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "Next": "RouteWork"
+    },
+    "Finalize": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "finalize",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnError"
+        }
+      ],
+      "End": true
+    },
+    "ReleaseLockOnError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TournamentPipelineFunctionArn}",
+        "Payload": {
+          "action": "abort",
+          "state.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.abort_error",
+          "Next": "TournamentFailed"
+        }
+      ],
+      "Next": "TournamentFailed"
+    },
+    "TournamentFailed": {
+      "Type": "Fail",
+      "Error": "TournamentPipelineFailed",
+      "Cause": "A pipeline task failed after retries; see $.error in the execution history. The day lock was released (or will expire on its own)."
+    }
+  }
+}
