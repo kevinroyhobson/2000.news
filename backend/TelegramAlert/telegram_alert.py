@@ -86,7 +86,9 @@ def _format_message(story: dict) -> str:
     message = f"{headline}\n\n{permalink}"
     original = story.get("OriginalHeadline", "").strip()
     if original:
-        message += f"\n\n<code>Sourced from: {html.escape(original)}</code>"
+        source = story.get("Source", "").strip()
+        attribution = f"{original}, {source}" if source else original
+        message += f"\n\n<code>({html.escape(attribution)})</code>"
     return message
 
 
