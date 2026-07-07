@@ -10,6 +10,7 @@ Best-effort: an API or Telegram hiccup logs and exits without raising, so a
 failed hour simply retries on the next.
 """
 
+import html
 import json
 import os
 import time
@@ -79,9 +80,16 @@ def _fetch_top_unsent(sent_ids: set):
 
 
 def _format_message(story: dict) -> str:
-    headline = story.get("Headline", "").strip()
+    """Message is sent with parse_mode=HTML, so dynamic text gets html-escaped."""
+    headline = html.escape(story.get("Headline", "").strip())
     permalink = f"https://www.2000.news/{story['YearMonthDay']}/{story['HeadlineId']}"
-    return f"{headline}\n\n{permalink}"
+    message = f"{headline}\n\n{permalink}"
+    original = story.get("OriginalHeadline", "").strip()
+    if original:
+        source = story.get("Source", "").strip()
+        attribution = f"{original}, {source}" if source else original
+        message += f"\n\n<code>({html.escape(attribution)})</code>"
+    return message
 
 
 def _mark_sent(headline_id: str) -> None:
@@ -99,6 +107,7 @@ def _send_telegram(text: str) -> bool:
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
+        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
     req = urllib.request.Request(
