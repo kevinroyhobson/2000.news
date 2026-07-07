@@ -86,9 +86,17 @@ def _format_message(story: dict) -> str:
     message = f"{headline}\n\n{permalink}"
     original = story.get("OriginalHeadline", "").strip()
     if original:
+        url = story.get("Url", "").strip()
         source = story.get("Source", "").strip()
-        attribution = f"{original}, {source}" if source else original
-        message += f"\n\n<code>({html.escape(attribution)})</code>"
+        # Telegram forbids nesting links inside <code>, so the linked headline
+        # sits between monospace fragments for the parens/comma/source.
+        headline_html = (
+            f'<a href="{html.escape(url, quote=True)}">{html.escape(original)}</a>'
+            if url
+            else f"<code>{html.escape(original)}</code>"
+        )
+        closing = f", {html.escape(source)})" if source else ")"
+        message += f"\n\n<code>(</code>{headline_html}<code>{closing}</code>"
     return message
 
 
