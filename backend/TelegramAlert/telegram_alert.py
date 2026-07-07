@@ -84,11 +84,13 @@ def _format_message(story: dict) -> str:
     headline = html.escape(story.get("Headline", "").strip())
     permalink = f"https://www.2000.news/{story['YearMonthDay']}/{story['HeadlineId']}"
     message = f"{headline}\n\n{permalink}"
-    original = story.get("OriginalHeadline", "").strip()
+    original = html.escape(story.get("OriginalHeadline", "").strip())
     if original:
-        source = story.get("Source", "").strip()
-        attribution = f"{original}, {source}" if source else original
-        message += f"\n\n<code>({html.escape(attribution)})</code>"
+        url = story.get("Url", "").strip()
+        if url:
+            original = f'<a href="{html.escape(url, quote=True)}">{original}</a>'
+        source = html.escape(story.get("Source", "").strip())
+        message += f"\n\n({original}, {source})" if source else f"\n\n({original})"
     return message
 
 
