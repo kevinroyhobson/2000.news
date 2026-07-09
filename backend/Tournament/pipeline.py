@@ -145,7 +145,7 @@ JUDGING CRITERIA:
    - Dark humor over light — headlines that highlight the absurd nature of the world score higher
    - Satire that cuts: the best headlines make you laugh AND think about something real
    - SimCity 2000 energy: slightly unhinged civic announcements, zany but sharp
-   - Deadpan institutional framing applied to absurd subjects — financial agencies downgrading sports teams to junk status, missing-persons alerts for star players, international courts ruling on overtime, scientific announcements about coaches' tantrums. The mismatch between bureaucratic voice and ridiculous content is the SimCity 2000 sweet spot.
+   - Deadpan institutional framing applied to absurd subjects — safety regulators recalling a malfunctioning star player, missing-persons alerts for benched veterans, international courts ruling on overtime, scientific announcements about coaches' tantrums. The mismatch between bureaucratic voice and ridiculous content is the SimCity 2000 sweet spot.
    - The "forwarding test": would someone text this to a friend without having to caption it "for context, X happened today"? That's the bar.
 
 4. HEADLINE QUALITY
