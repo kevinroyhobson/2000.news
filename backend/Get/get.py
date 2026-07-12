@@ -72,7 +72,7 @@ def get(event, context):
     selected = select_headlines(headlines, requested_headline_id, search_query, rank_field, seen_as_top)
 
     # Get story details for selected headlines
-    stories = enrich_with_story_details(selected, headlines, requested_headline_id)
+    stories = enrich_with_story_details(selected, headlines, requested_headline_id, rank_field)
 
     top_headlines = get_top_headlines(headlines, rank_field=rank_field)
 
@@ -143,7 +143,7 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     def get_rank(h):
         return h.get(rank_field) or (max_rank + 1)
 
-    # Sort outstanding > solid > ungraded, then by rank within each tier.
+    ranked_headlines = sorted(headlines, key=lambda h: (get_rank(h), _grade_tier(h)))
     sorted_headlines = sorted(headlines, key=lambda h: (_grade_tier(h), get_rank(h)))
 
     result = []
@@ -160,7 +160,7 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
 
     # If no requested headline and no search query, pick highest-ranked unseen headline for #1
     if not result and not search_query:
-        for h in sorted_headlines:
+        for h in ranked_headlines:
             if (h['HeadlineId'] not in seen_as_top
                     and h['StoryId'] not in picked_story_ids
                     and not _is_filtered_grade(h)):
@@ -217,7 +217,7 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     return result[:4]
 
 
-def enrich_with_story_details(selected_headlines, all_headlines, requested_headline_id=''):
+def enrich_with_story_details(selected_headlines, all_headlines, requested_headline_id='', rank_field='Rank'):
     """Get story details from Stories table and merge with headline data."""
     if not selected_headlines:
         return []
@@ -253,9 +253,9 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
             and s['StoryId'] == h['StoryId']
             and (s['HeadlineId'] == h['HeadlineId'] or not _is_filtered_grade(s))
         ]
-        sib_max_rank = max((s.get('Rank') or 0 for s in sibling_pool), default=0)
-        sibling_pool.sort(key=lambda s: (_grade_tier(s), s.get('Rank') or (sib_max_rank + 1)))
-        siblings = to_headline_list(sibling_pool)
+        sib_max_rank = max((s.get(rank_field) or 0 for s in sibling_pool), default=0)
+        sibling_pool.sort(key=lambda s: (_grade_tier(s), s.get(rank_field) or (sib_max_rank + 1)))
+        siblings = to_headline_list(sibling_pool, rank_field=rank_field)
 
         # Don't show original if this headline was specifically requested via URL
         show_original = False if h['HeadlineId'] == requested_headline_id else random.random() < 0.25
@@ -267,7 +267,7 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
             'ShowOriginal': show_original,
             'Angle': h.get('Angle', ''),
             'AngleSetup': h.get('AngleSetup', ''),
-            'Rank': h.get('Rank'),
+            'Rank': h.get(rank_field),
             'YearMonthDay': h['YearMonthDay'],
             'StoryId': h['StoryId'],
             'Description': story.get('Description', ''),
