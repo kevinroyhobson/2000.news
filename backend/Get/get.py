@@ -67,6 +67,8 @@ def get(event, context):
 
     # Select 4 headlines using expanding pool algorithm
     requested_headline_id = params.get('headline_slug', '')
+    if requested_headline_id:
+        ensure_requested_headline(headlines, day_key, requested_headline_id)
     search_query = params.get('q', '')
     seen_as_top = set(params.get('seen', '').split(',')) if params.get('seen') else set()
     selected = select_headlines(headlines, requested_headline_id, search_query, rank_field, seen_as_top)
@@ -131,6 +133,18 @@ def query_day_partition(table, day_key):
         )
         items.extend(response.get('Items', []))
     return items
+
+
+def ensure_requested_headline(headlines, day_key, headline_id):
+    """The permalink carries the full primary key, so a direct-linked headline
+    is served via key lookup even when the pool read doesn't include it."""
+    if any(h['HeadlineId'] == headline_id for h in headlines):
+        return
+    response = _headlines_table.get_item(
+        Key={'YearMonthDay': day_key, 'HeadlineId': headline_id}
+    )
+    if 'Item' in response:
+        headlines.append(response['Item'])
 
 
 def select_headlines(headlines, requested_headline_id, search_query='', rank_field='Rank', seen_as_top=None):

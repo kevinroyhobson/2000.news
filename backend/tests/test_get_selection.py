@@ -86,6 +86,28 @@ def test_direct_link_resolves_headline_beyond_first_page():
     assert selected[0]["HeadlineId"] == "f2-second-page"
 
 
+def test_requested_headline_fetched_by_key_when_pool_misses_it():
+    get = _load_get_module()
+    requested = _headline("f2-not-in-pool", 2)
+
+    class _TableWithGetItem:
+        def get_item(self, Key):
+            assert Key == {"YearMonthDay": "20260728", "HeadlineId": "f2-not-in-pool"}
+            return {"Item": requested}
+
+    get._headlines_table = _TableWithGetItem()
+    headlines = [_headline("0a-in-pool", 1)]
+
+    get.ensure_requested_headline(headlines, "20260728", "f2-not-in-pool")
+    selected = get.select_headlines(
+        headlines,
+        requested_headline_id="f2-not-in-pool",
+        rank_field="Rank",
+    )
+
+    assert selected[0]["HeadlineId"] == "f2-not-in-pool"
+
+
 def test_seen_as_top_picks_lowest_unseen_rank():
     get = _load_get_module()
     headlines = [
