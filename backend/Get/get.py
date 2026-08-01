@@ -112,12 +112,25 @@ def get_day_key(date=None):
 def get_headlines_for_day(day_key):
     """Query all headlines for a day from SubvertedHeadlines."""
     logger.info(f"Getting headlines for {day_key}")
-    response = _headlines_table.query(
-        KeyConditionExpression=Key('YearMonthDay').eq(day_key)
-    )
-    headlines = response.get('Items', [])
+    headlines = query_day_partition(_headlines_table, day_key)
     logger.info(f"Got {len(headlines)} headlines for {day_key}")
     return headlines
+
+
+def query_day_partition(table, day_key):
+    """Query every item in a day partition, paging past DynamoDB's 1MB
+    per-query limit — a full day's headlines exceed one page."""
+    response = table.query(
+        KeyConditionExpression=Key('YearMonthDay').eq(day_key)
+    )
+    items = response.get('Items', [])
+    while 'LastEvaluatedKey' in response:
+        response = table.query(
+            KeyConditionExpression=Key('YearMonthDay').eq(day_key),
+            ExclusiveStartKey=response['LastEvaluatedKey']
+        )
+        items.extend(response.get('Items', []))
+    return items
 
 
 def select_headlines(headlines, requested_headline_id, search_query='', rank_field='Rank', seen_as_top=None):
@@ -283,10 +296,7 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
 
 def get_stories_for_day(day_key):
     """Query all stories for a day."""
-    response = _stories_table.query(
-        KeyConditionExpression=Key('YearMonthDay').eq(day_key)
-    )
-    return response.get('Items', [])
+    return query_day_partition(_stories_table, day_key)
 
 
 def to_headline_list(headlines, rank_field='Rank'):

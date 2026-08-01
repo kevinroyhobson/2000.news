@@ -55,6 +55,37 @@ def _headline(headline_id, rank, grade=None, story_id=None):
     }
 
 
+class _PagedTable:
+    """Table stub that splits items across pages like DynamoDB's 1MB limit."""
+
+    def __init__(self, pages):
+        self.pages = pages
+
+    def query(self, **kwargs):
+        page_index = kwargs.get("ExclusiveStartKey", 0)
+        response = {"Items": self.pages[page_index]}
+        if page_index + 1 < len(self.pages):
+            response["LastEvaluatedKey"] = page_index + 1
+        return response
+
+
+def test_direct_link_resolves_headline_beyond_first_page():
+    get = _load_get_module()
+    get._headlines_table = _PagedTable([
+        [_headline("0a-first-page", 1)],
+        [_headline("f2-second-page", 2)],
+    ])
+
+    headlines = get.get_headlines_for_day("20260728")
+    selected = get.select_headlines(
+        headlines,
+        requested_headline_id="f2-second-page",
+        rank_field="Rank",
+    )
+
+    assert selected[0]["HeadlineId"] == "f2-second-page"
+
+
 def test_seen_as_top_picks_lowest_unseen_rank():
     get = _load_get_module()
     headlines = [
