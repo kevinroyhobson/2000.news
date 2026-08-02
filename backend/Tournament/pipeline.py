@@ -177,6 +177,9 @@ EXAMPLES OF GREAT HEADLINES (calibrate your taste to this level):
 - "Hurricane Season Begins Whether You've Got Your Shit Together or Not"
   Why it works: Deadpan profanity done right — service-journalism framing plays it perfectly straight while the swear hides inside a familiar idiom. The headline never acknowledges its own profanity; the refusal to wink is the joke. Fully self-contained.
 
+- "Fed Holds Interest Rates Steady Because Nobody Fucking Knows Anymore"
+  Why it works: Flawless financial-wire syntax carrying a confession no institution would ever print. The "because" clause promises official rationale and delivers exhausted candor instead, with the swear placed for rhythm rather than shock. Works with zero knowledge of any actual Fed decision.
+
 EXAMPLES OF MEDIOCRE HEADLINES (things that should rank lower):
 - Headlines whose joke depends on knowing the specific news story being parodied — if you stripped away the source story, would this still be funny? If not, rank it down.
 - "Inside-baseball" satire that requires being deep in the news cycle to land
