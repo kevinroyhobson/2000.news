@@ -90,6 +90,7 @@ ANGLE TYPES (aim for variety):
 6. REVERSAL / IRONY — Flip the framing: villain as hero, tragedy as celebration, deadpan wrong conclusions.
 7. POP CULTURE REFERENCE — Repurposed titles/catchphrases/lyrics that add meaning, not just recognition.
 8. FORMAT-BORROWING / INSTITUTIONAL — Wear the wholesale conventions of an unrelated genre: missing-persons posters (height, last-seen location), product recalls (FDA safety notice, voluntary recall), court rulings (Geneva Convention, international tribunal), weather alerts, scientific journals, AP wire boilerplate. The borrowed format IS the joke. E.g.: 'MISSING: Kevin Durant, 6\'10", last seen in Houston. Lakers defeat search party 112-108' — flyer format applied to a basketball game; the deadpan-realism details and "defeat search party" pivot make it land.
+9. DEADPAN PROFANITY — A perfectly straight newspaper headline with one casual profanity dropped exactly where a copy editor would never allow it, treated as ordinary vocabulary. The headline never acknowledges the swear: wire-service structure, attribution, and tone stay immaculate, and the profanity reads as weary institutional honesty rather than shock. One swear per headline, placed for rhythm. E.g.: "Fed Holds Interest Rates Steady Because Nobody Fucking Knows Anymore"; "Report: Housing Market Still Completely Fucked, Analysts Confirm"; "Congress Passes Budget at the Last Fucking Minute, Again"; "Economy Adds 200,000 Jobs, None of Which Pay Shit"; "City Council Approves $2 Billion Stadium, Figures Fuck It".
 
 QUALITY BAR:
 - Each angle needs a specific mechanism (pun, twist, reference), not just "make it funny"
@@ -329,6 +330,7 @@ Style guide:
 - If it rhymes, make sure it scans well
 - Keep headlines punchy - no periods at the end unless it's multiple sentences
 - It's OK to twist the meaning for comedic effect
+- If the angle calls for profanity, keep the headline structure perfectly straight — one swear treated as normal copy, never winked at or piled on
 
 Return as JSON array:
 [{{"headline": "..."}}]"""
