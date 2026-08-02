@@ -146,6 +146,7 @@ JUDGING CRITERIA:
    - Satire that cuts: the best headlines make you laugh AND think about something real
    - SimCity 2000 energy: slightly unhinged civic announcements, zany but sharp
    - Deadpan institutional framing applied to absurd subjects — safety regulators recalling a malfunctioning star player, missing-persons alerts for benched veterans, international courts ruling on overtime, scientific announcements about coaches' tantrums. The mismatch between bureaucratic voice and ridiculous content is the SimCity 2000 sweet spot.
+   - Deadpan profanity is house style, not a defect: one casually placed swear inside otherwise immaculate newspaper copy scores as craft when the structure stays straight and the profanity lands as weary institutional honesty (e.g., "Scientists Confirm Ocean Somehow More Fucked Than Previously Thought"). Rank down only when the swearing IS the whole joke or the headline mugs at its own vulgarity.
    - The "forwarding test": would someone text this to a friend without having to caption it "for context, X happened today"? That's the bar.
 
 4. HEADLINE QUALITY
@@ -172,6 +173,12 @@ EXAMPLES OF GREAT HEADLINES (calibrate your taste to this level):
 
 - "Local Woman Achieves Elite Frequent Flyer Status Through Emotional Avoidance"
   Why it works: Mundane achievement framing applied to a dark emotional truth. Reads like a lifestyle section piece, hits like a therapy session. Completely self-contained — no news story needed.
+
+- "Hurricane Season Begins Whether You've Got Your Shit Together or Not"
+  Why it works: Deadpan profanity done right — service-journalism framing plays it perfectly straight while the swear hides inside a familiar idiom. The headline never acknowledges its own profanity; the refusal to wink is the joke. Fully self-contained.
+
+- "Fed Holds Interest Rates Steady Because Nobody Fucking Knows Anymore"
+  Why it works: Flawless financial-wire syntax carrying a confession no institution would ever print. The "because" clause promises official rationale and delivers exhausted candor instead, with the swear placed for rhythm rather than shock. Works with zero knowledge of any actual Fed decision.
 
 EXAMPLES OF MEDIOCRE HEADLINES (things that should rank lower):
 - Headlines whose joke depends on knowing the specific news story being parodied — if you stripped away the source story, would this still be funny? If not, rank it down.
