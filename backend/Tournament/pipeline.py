@@ -177,9 +177,6 @@ EXAMPLES OF GREAT HEADLINES (calibrate your taste to this level):
 - "Hurricane Season Begins Whether You've Got Your Shit Together or Not"
   Why it works: Deadpan profanity done right — service-journalism framing plays it perfectly straight while the swear hides inside a familiar idiom. The headline never acknowledges its own profanity; the refusal to wink is the joke. Fully self-contained.
 
-- "School Board Meeting Devolves Into Shitshow Right on Schedule"
-  Why it works: "Right on schedule" files the shitshow as routine civic business, and the vulgarity is delivered in the same bored municipal-calendar voice as everything else. The swear isn't the punchline — the institutional resignation around it is.
-
 EXAMPLES OF MEDIOCRE HEADLINES (things that should rank lower):
 - Headlines whose joke depends on knowing the specific news story being parodied — if you stripped away the source story, would this still be funny? If not, rank it down.
 - "Inside-baseball" satire that requires being deep in the news cycle to land
