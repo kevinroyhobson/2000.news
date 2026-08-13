@@ -19,13 +19,10 @@ import boto3
 
 from lib.ssm_secrets import get_secret
 
-SECRET_NAME = os.environ.get("WEBHOOK_SECRET_NAME", "telegram-webhook-secret")
-REACTION_FUNCTION_NAME = os.environ.get("REACTION_FUNCTION_NAME", "")
+SECRET_NAME = "telegram-webhook-secret"
 SECRET_HEADER = "x-telegram-bot-api-secret-token"
-
-# Reaction updates are the only thing this bot listens for. Anything else is
-# acknowledged and dropped so Telegram stops redelivering it.
 HANDLED_UPDATES = ("message_reaction", "message_reaction_count")
+REACTION_FUNCTION_NAME = os.environ["REACTION_FUNCTION_NAME"]
 
 _lambda = boto3.client("lambda")
 
@@ -37,6 +34,8 @@ def handler(event, context):
         print("Rejected webhook call: bad or missing secret token.")
         return _response(401)
 
+    # Everything below answers 200 even when it does nothing, so Telegram
+    # stops redelivering an update we are never going to act on.
     try:
         update = json.loads(_body(event) or "{}")
     except ValueError as e:
@@ -44,11 +43,7 @@ def handler(event, context):
         return _response(200)
 
     if not any(key in update for key in HANDLED_UPDATES):
-        print(f"Ignoring update of type(s) {sorted(k for k in update if k != 'update_id')}.")
-        return _response(200)
-
-    if not REACTION_FUNCTION_NAME:
-        print("REACTION_FUNCTION_NAME not set; dropping update.")
+        print(f"Ignoring non-reaction update {update.get('update_id')}.")
         return _response(200)
 
     _lambda.invoke(
@@ -56,7 +51,7 @@ def handler(event, context):
         InvocationType="Event",
         Payload=json.dumps({"update": update}).encode("utf-8"),
     )
-    print(f"Dispatched update {update.get('update_id')} to {REACTION_FUNCTION_NAME}.")
+    print(f"Dispatched update {update.get('update_id')} for grading.")
     return _response(200)
 
 

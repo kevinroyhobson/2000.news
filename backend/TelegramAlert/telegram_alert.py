@@ -114,13 +114,14 @@ def _format_message(story: dict) -> str:
 
 def _mark_sent(story: dict, message: dict) -> None:
     """Record the post. MessageId/ChatId are the reaction grader's lookup key."""
+    now = int(time.time())
     item = {
         "HeadlineId": story["HeadlineId"],
         "YearMonthDay": story.get("YearMonthDay", ""),
         "Headline": story.get("Headline", ""),
         "OriginalHeadline": story.get("OriginalHeadline", ""),
-        "SentAt": int(time.time()),
-        "ExpiresAt": int(time.time()) + TTL_SECONDS,
+        "SentAt": now,
+        "ExpiresAt": now + TTL_SECONDS,
     }
     message_id = message.get("message_id")
     chat_id = (message.get("chat") or {}).get("id")

@@ -15,15 +15,20 @@ import os
 import boto3
 from boto3.dynamodb.conditions import Key
 
-from lib.curation import apply_grade, clear_grade, gen_rationale, rebuild_exemplar_cache
+from lib.curation import (
+    TABLE_NAME,
+    apply_grade,
+    clear_grade,
+    gen_rationale,
+    rebuild_exemplar_cache,
+)
 from lib.telegram import TelegramError, send_message
 from TelegramReaction import reactions
 
 SENT_TABLE = os.environ.get("SENT_TABLE", "TelegramSentHeadlines")
-MESSAGE_INDEX = os.environ.get("SENT_MESSAGE_INDEX", "MessageIdIndex")
-HEADLINES_TABLE = os.environ.get("HEADLINES_TABLE", "SubvertedHeadlines")
+MESSAGE_INDEX = "MessageIdIndex"
 # all | outstanding | none — which grades get a reply posted in the channel.
-REPLY_ON_GRADE = os.environ.get("TELEGRAM_REPLY_ON_GRADE", "all").strip().lower()
+REPLY_ON_GRADE = os.environ.get("TELEGRAM_REPLY_ON_GRADE", "all").lower()
 
 # Marks grades this handler wrote, so an undo can't wipe a CLI grade.
 GRADE_SOURCE = "telegram-reaction"
@@ -37,7 +42,7 @@ GRADE_REPLY = {
 
 _dynamo = boto3.resource("dynamodb")
 _sent_table = _dynamo.Table(SENT_TABLE)
-_headlines_table = _dynamo.Table(HEADLINES_TABLE)
+_headlines_table = _dynamo.Table(TABLE_NAME)
 _conditional_failed = _dynamo.meta.client.exceptions.ConditionalCheckFailedException
 
 
@@ -89,8 +94,8 @@ def _grade(sent: dict, reaction: reactions.Reaction) -> None:
                 rationale=rationale, source=GRADE_SOURCE)
     print(f"Graded {headline_id} as {reaction.grade} from a Telegram reaction.")
 
-    # Reply before the cache rebuild — that part is slow and nobody is waiting
-    # on it, but the person who tapped the emoji is waiting on this.
+    # Reply first: whoever tapped the emoji is waiting on it, and the rebuild
+    # below is slow.
     _reply(reaction, reaction.grade, rationale)
 
     if reaction.grade == "outstanding" or was_outstanding:
@@ -121,7 +126,7 @@ def _refresh_exemplars() -> None:
 def _reply(reaction: reactions.Reaction, grade: str, rationale: str) -> None:
     if REPLY_ON_GRADE == "none" or (REPLY_ON_GRADE == "outstanding" and grade != "outstanding"):
         return
-    text = GRADE_REPLY.get(grade, f"Saved: {grade}.")
+    text = GRADE_REPLY[grade]
     if rationale:
         # parse_mode=HTML on a text body only needs &, < and > escaped; leaving
         # quotes alone keeps the apostrophes in a rationale readable.

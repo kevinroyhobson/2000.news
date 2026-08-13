@@ -50,14 +50,13 @@ def _interactive_rationale(headline: str, original: str) -> str:
     RED = '\033[31m'
     RESET = '\033[0m'
 
+    def note_refusal(err):
+        print(f"\n  {DIM}{err} — falling back to {RATIONALE_FALLBACK_MODEL}...{RESET}",
+              end='', flush=True)
+
     rationale = ''
     while True:
         print(f"  {DIM}generating rationale...{RESET}", end='', flush=True)
-
-        def note_refusal(err):
-            print(f"\n  {DIM}{err} — falling back to {RATIONALE_FALLBACK_MODEL}...{RESET}",
-                  end='', flush=True)
-
         try:
             rationale = gen_rationale(headline, original, on_refusal=note_refusal)
         except Exception as e:

@@ -1,7 +1,5 @@
 """Turn a Telegram reaction update into a curation grade.
 
-Pure functions, no AWS or network — this is the part worth unit-testing.
-
 Two update flavours arrive, and which one you get depends on the chat:
 
   message_reaction_count  Channels (and other anonymous-reaction chats) send
@@ -12,9 +10,6 @@ Two update flavours arrive, and which one you get depends on the chat:
                           updates and only accept identified reactors.
   message_reaction        Groups and private chats send the individual
                           before/after reaction lists, with the user.
-
-Both collapse to the same question: which grade, if any, does the current set
-of reactions on this message mean?
 """
 
 import json
@@ -45,7 +40,7 @@ DEFAULT_EMOJI_GRADES = {
 # Ties on reaction count break toward the strongest opinion.
 GRADE_PRECEDENCE = ("outstanding", "bad", "solid", "meh")
 
-VARIATION_SELECTOR = "\ufe0f"  # U+FE0F, invisible
+VARIATION_SELECTOR = "\ufe0f"
 
 
 class Reaction(NamedTuple):
@@ -119,8 +114,10 @@ def parse(update: dict, emoji_grades: dict = None, allowed_user_ids: set = None)
     A Reaction with grade=None means every grading emoji was taken off the
     post — an undo of whatever the reactions previously set.
     """
-    emoji_grades = emoji_grades if emoji_grades is not None else load_emoji_grades()
-    allowed_user_ids = allowed_user_ids if allowed_user_ids is not None else load_allowed_user_ids()
+    if emoji_grades is None:
+        emoji_grades = load_emoji_grades()
+    if allowed_user_ids is None:
+        allowed_user_ids = load_allowed_user_ids()
 
     if "message_reaction_count" in update:
         payload = update["message_reaction_count"]

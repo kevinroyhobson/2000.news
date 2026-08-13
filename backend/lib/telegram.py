@@ -1,8 +1,7 @@
 """Minimal Telegram Bot API client.
 
 Shared by the hourly headline poster (TelegramAlert) and the reaction grader
-(TelegramReaction). stdlib-only so it stays cheap to import in a Lambda whose
-whole job is to answer a webhook in a few milliseconds.
+(TelegramReaction). stdlib-only, so the webhook stays cheap to cold-start.
 """
 
 import json

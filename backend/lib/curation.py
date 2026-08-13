@@ -11,13 +11,12 @@ import re
 from zoneinfo import ZoneInfo
 
 import anthropic
-import boto3
 from boto3.dynamodb.conditions import Attr
 
 from lib.ssm_secrets import get_secret
 
 
-REGION = os.getenv('CURATION_REGION', 'us-east-2')
+REGION = 'us-east-2'
 TABLE_NAME = 'SubvertedHeadlines'
 
 GRADES = ('outstanding', 'solid', 'meh', 'bad')
@@ -53,10 +52,6 @@ Reply with ONLY the explanation. No preamble, no quotes around it."""
 
 
 _anthropic_client = None
-
-
-def headlines_table(region: str = None):
-    return boto3.resource('dynamodb', region_name=region or REGION).Table(TABLE_NAME)
 
 
 def get_anthropic_client():
@@ -152,10 +147,8 @@ def clear_grade(table, year_month_day: str, headline_id: str, only_if_source: st
         kwargs['ConditionExpression'] = Attr('GradeSource').eq(only_if_source)
     try:
         table.update_item(**kwargs)
-    except Exception as e:
-        if type(e).__name__ == 'ConditionalCheckFailedException':
-            return False
-        raise
+    except table.meta.client.exceptions.ConditionalCheckFailedException:
+        return False
     return True
 
 

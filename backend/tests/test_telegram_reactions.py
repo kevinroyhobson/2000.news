@@ -58,10 +58,6 @@ def test_heart_matches_with_or_without_the_variation_selector():
     assert without.grade == "outstanding"
 
 
-def test_thumbs_down_grades_bad():
-    assert reactions.parse(_count_update(("👎", 1)), GRADES, set()).grade == "bad"
-
-
 def test_most_reacted_emoji_wins():
     result = reactions.parse(_count_update(("🏆", 1), ("👎", 3)), GRADES, set())
 

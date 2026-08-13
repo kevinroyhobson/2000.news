@@ -31,7 +31,7 @@ DEFAULT_URL = 'https://api.2000.news/telegram/reaction'
 SECRET_PARAMETER = '/2000news/telegram-webhook-secret'
 # Without these two, Telegram sends nothing when someone taps an emoji.
 ALLOWED_UPDATES = ['message_reaction', 'message_reaction_count']
-REGION = os.getenv('CURATION_REGION', 'us-east-2')
+REGION = 'us-east-2'
 
 
 def ensure_secret(ssm) -> str:
