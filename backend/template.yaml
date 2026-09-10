@@ -79,9 +79,20 @@ Resources:
       AttributeDefinitions:
         - AttributeName: HeadlineId
           AttributeType: S
+        - AttributeName: MessageId
+          AttributeType: N
       KeySchema:
         - AttributeName: HeadlineId
           KeyType: HASH
+      # Reverse lookup for TelegramReaction: an emoji arrives carrying only the
+      # chat and message it landed on, and this maps that back to a headline.
+      GlobalSecondaryIndexes:
+        - IndexName: MessageIdIndex
+          KeySchema:
+            - AttributeName: MessageId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
       TimeToLiveSpecification:
         AttributeName: ExpiresAt
         Enabled: true
@@ -327,6 +338,50 @@ Resources:
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 
+  # Telegram's webhook target. Authenticates the secret token and hands the
+  # update off asynchronously — grading takes a Claude call, far longer than
+  # Telegram will wait before retrying the delivery.
+  TelegramReactionWebhook:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TelegramReaction/webhook.handler
+      Runtime: python3.14
+      MemorySize: 512
+      Timeout: 10
+      Environment:
+        Variables:
+          REACTION_FUNCTION_NAME: !Ref TelegramReactionGrade
+      Events:
+        TelegramReactionApiEvent:
+          Type: Api
+          Properties:
+            Path: /telegram/reaction
+            Method: post
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TelegramReactionGrade
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
+
+  # Applies the grade an emoji stands for, exactly as `news curate` would:
+  # writes it, generates the rationale for outstanding picks, rebuilds the
+  # judge's exemplar cache, and replies in the channel. Timeout covers a
+  # rationale call plus a cache rebuild's token counting.
+  TelegramReactionGrade:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TelegramReaction/grade.handler
+      Runtime: python3.14
+      MemorySize: 1024
+      Timeout: 300
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TelegramSentHeadlines
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubvertedHeadlines
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
+
 Outputs:
   GetStoriesForTodayApi:
     Description: "Custom API Gateway endpoint for prod GetStoriesForToday"
@@ -337,3 +392,6 @@ Outputs:
   GetHeadlineApi:
     Description: "Custom API Gateway endpoint for prod GetHeadline"
     Value: "https://api.2000.news/{day}/{headline_slug}/"
+  TelegramReactionWebhookApi:
+    Description: "Webhook URL to register with Telegram (news telegram-webhook --register)"
+    Value: "https://api.2000.news/telegram/reaction"

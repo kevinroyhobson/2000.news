@@ -18,11 +18,9 @@ import boto3
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from lib.ssm_secrets import get_secret  # noqa: E402
 
-# Pull the static system prompt from tournament.py
-import re
-tourn_src = open(os.path.join(os.path.dirname(__file__), '..', 'Tournament', 'tournament.py')).read()
-m = re.search(r'TOURNAMENT_SYSTEM_PROMPT = """(.*?)"""', tourn_src, re.DOTALL)
-STATIC_PROMPT = m.group(1)
+# Pull the static system prompt from the judge's source
+from lib.curation import _read_static_system_prompt  # noqa: E402
+STATIC_PROMPT = _read_static_system_prompt()
 
 # Pull cached exemplars from DDB (same logic Tournament uses at module load)
 dynamo = boto3.resource('dynamodb', region_name='us-east-2')
