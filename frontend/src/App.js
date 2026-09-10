@@ -23,7 +23,7 @@ function App() {
       <div className='nyc-background'>
         <Newspaper />
         <div className='credit'>
-          <a href='http://kevinhobson.com/' target='_blank' rel='noreferrer'>kevinhobson.com</a>
+          <a href='https://kev.dev/' target='_blank' rel='noreferrer'>kev.dev</a>
         </div>
       </div>
     </DebugModeProvider>
