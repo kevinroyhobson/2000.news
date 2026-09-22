@@ -21,6 +21,9 @@ Stories stream -> subvert.py (starter) -> SubvertPipeline state machine
 - `subvert.py` — thin Stories-stream trigger. Dedupes stories that already
   have headlines and starts one execution per stream batch. Never calls a model.
 - `pipeline.py` — the state machine's task handler (dispatch on `action`).
+- `on_demand.py` — the same two stages as parallel synchronous calls, for a
+  story someone is waiting on (TelegramScoop). Stories it handles carry a
+  `telegram:` FetchCategory, which the stream trigger skips.
 
 The two LLM stages:
 

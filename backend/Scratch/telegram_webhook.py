@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Point the Telegram bot at the reaction webhook (and check on it later).
+Point the Telegram bot at the webhook (and check on it later).
 
-Reaction updates are opt-in: Telegram only delivers them if the bot is an
-administrator in the channel AND the reaction update types are named in
+Reaction updates and channel posts are opt-in: Telegram only delivers them if
+the bot is an administrator in the channel AND the update types are named in
 allowed_updates. Registering here does both halves of that, plus generates a
 shared secret Telegram echoes back on every delivery so the public endpoint
 can tell real updates from anything else that finds the URL.
@@ -27,10 +27,11 @@ import boto3
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from lib.telegram import call  # noqa: E402
 
-DEFAULT_URL = 'https://api.2000.news/telegram/reaction'
+DEFAULT_URL = 'https://api.2000.news/telegram/webhook'
 SECRET_PARAMETER = '/2000news/telegram-webhook-secret'
-# Without these two, Telegram sends nothing when someone taps an emoji.
-ALLOWED_UPDATES = ['message_reaction', 'message_reaction_count']
+# The reaction types carry emoji taps (TelegramReaction); channel_post carries
+# the links and /scoop commands (TelegramScoop). Nothing arrives otherwise.
+ALLOWED_UPDATES = ['message_reaction', 'message_reaction_count', 'channel_post']
 REGION = 'us-east-2'
 
 
@@ -62,9 +63,11 @@ def main():
             print(f"{key}: {info[key]}")
         if not info.get('url'):
             print("\nNo webhook registered. Run with --register.")
-        elif 'message_reaction' not in (info.get('allowed_updates') or []):
-            print("\nWarning: reaction updates are NOT in allowed_updates — "
-                  "emoji taps will not be delivered. Re-run with --register.")
+        else:
+            missing = sorted(set(ALLOWED_UPDATES) - set(info.get('allowed_updates') or []))
+            if missing:
+                print(f"\nWarning: {', '.join(missing)} NOT in allowed_updates — "
+                      "those updates will not be delivered. Re-run with --register.")
         return
 
     if args.delete:
@@ -81,7 +84,7 @@ def main():
     })
     print(f"Webhook set to {args.url}")
     print(f"Subscribed to: {', '.join(ALLOWED_UPDATES)}")
-    print("\nThe bot must be an administrator in the channel for reaction "
+    print("\nThe bot must be an administrator in the channel for these "
           "updates to be delivered.")
 
 
