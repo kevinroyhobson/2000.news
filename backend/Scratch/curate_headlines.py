@@ -44,7 +44,7 @@ EXEMPLAR_TOKEN_TARGET = int(os.getenv('EXEMPLAR_TOKEN_TARGET', '5000'))
 # Hard upper bound on exemplars cached, regardless of token budget. Floor on
 # overfit risk if the rationales are unusually short.
 EXEMPLAR_HARD_CAP = 50
-TOURNAMENT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Tournament', 'tournament.py')
+TOURNAMENT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Tournament', 'pipeline.py')
 
 GRADE_KEYS = {
     'o': 'outstanding',
@@ -173,12 +173,12 @@ def _interactive_rationale(headline: str, original: str) -> str:
 
 
 def _read_static_system_prompt() -> str:
-    """Pull the TOURNAMENT_SYSTEM_PROMPT base text from tournament.py source."""
+    """Pull the TOURNAMENT_SYSTEM_PROMPT base text from pipeline.py source."""
     import re
     src = open(TOURNAMENT_PATH).read()
     m = re.search(r'TOURNAMENT_SYSTEM_PROMPT = """(.*?)"""', src, re.DOTALL)
     if not m:
-        raise RuntimeError("Could not locate TOURNAMENT_SYSTEM_PROMPT in tournament.py")
+        raise RuntimeError("Could not locate TOURNAMENT_SYSTEM_PROMPT in pipeline.py")
     return m.group(1)
 
 
