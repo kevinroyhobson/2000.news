@@ -178,7 +178,7 @@ Resources:
       Environment:
         Variables:
           BRAINSTORM_MODEL: claude-opus-5-5
-          GENERATE_MODEL: claude-haiku-4-5-20251001
+          GENERATE_MODEL: claude-sonnet-5
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SubvertedHeadlines

@@ -60,14 +60,14 @@ BRAINSTORM_MODEL = os.getenv("BRAINSTORM_MODEL", "claude-opus-5-5")
 # Thinking depth for Stage 1. effort requires Sonnet 4.6+/Opus — remove it
 # before pointing BRAINSTORM_MODEL at Haiku.
 BRAINSTORM_EFFORT = os.getenv("BRAINSTORM_EFFORT", "high")
-GENERATE_MODEL = os.getenv("GENERATE_MODEL", "claude-haiku-4-5-20251001")
+GENERATE_MODEL = os.getenv("GENERATE_MODEL", "claude-sonnet-5")
+# Same Haiku caveat as BRAINSTORM_EFFORT.
+GENERATE_EFFORT = os.getenv("GENERATE_EFFORT", "medium")
 
 # Stage 2 (headline generation) model A/B: one random.choice per angle,
-# recorded on each headline as GenerateModel. Currently single-model (100%
-# Haiku 4.5) — the Haiku-vs-Sonnet test showed no taste-detectable quality gap
-# at 3x the cost. To A/B again, add model IDs back to this list; the per-angle
-# selection (made at submit time, carried on the angle in state) and
-# GenerateModel tagging stay wired up.
+# recorded on each headline as GenerateModel. Currently single-model. To A/B,
+# add model IDs to this list; the per-angle selection (made at submit time,
+# carried on the angle in state) and GenerateModel tagging stay wired up.
 STAGE_2_AB_MODELS = [GENERATE_MODEL]
 
 _anthropic_client = None
@@ -346,7 +346,10 @@ Return as JSON array:
                 "custom_id": f"gen-{si}-{ai}",
                 "params": {
                     "model": angle["generate_model"],
-                    "max_tokens": 1024,
+                    # Sonnet 5 thinks by default, and thinking counts against
+                    # max_tokens.
+                    "max_tokens": 8000,
+                    "output_config": {"effort": GENERATE_EFFORT},
                     "messages": [{"role": "user", "content": prompt}],
                 },
             })
