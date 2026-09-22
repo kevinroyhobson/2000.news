@@ -51,6 +51,11 @@ like everything else.
 top-tier sources, up to 3 new stories. A topic with nothing new gets a reply
 saying so.
 
+A plain topic is sent with every word required (`cincinnati AND reds`), since
+newsdata otherwise matches the words independently anywhere in an article.
+Quotes and operators you type are passed through, so `/scoop "joe burrow"` asks
+for the phrase and `/scoop bengals OR browns` asks for either.
+
 ## Who can post
 
 Broadcast channels only let administrators post, so give anyone who should

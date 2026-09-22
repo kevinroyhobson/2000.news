@@ -23,7 +23,7 @@ from langfuse import get_client, observe
 from lib.newsdata_client import NewsdataClient
 from lib.stories_repository import ON_DEMAND_FETCH_PREFIX, StoriesRepository
 from lib.telegram import TelegramError, send_message
-from lib.topic_search import save_stories_for_query
+from lib.topic_search import require_every_word, save_stories_for_query
 from Subvert.on_demand import subvert_synchronously
 from Subvert.subvert import do_headlines_exist_for_story, pipeline_story
 from TelegramScoop import commands
@@ -80,7 +80,7 @@ def _save_stories(request: commands.Request) -> list:
         return [story]
 
     stories = save_stories_for_query(
-        request.text, NewsdataClient(),
+        require_every_word(request.text), NewsdataClient(),
         lambda story: _save_or_resume(story, f"{ON_DEMAND_FETCH_PREFIX}scoop:{request.text}", today),
         max_stories=MAX_SEARCH_STORIES,
     )
@@ -128,5 +128,6 @@ def _escape(text: str) -> str:
 def _reply(request: commands.Request, text: str) -> None:
     try:
         send_message(request.chat_id, text, reply_to_message_id=request.message_id)
+        print(f"Replied to message {request.message_id}: {text}")
     except TelegramError as e:
         print(f"Reply to message {request.message_id} failed ({e}).")
