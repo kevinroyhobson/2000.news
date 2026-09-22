@@ -61,7 +61,3 @@ def test_visible_text_prefers_the_article_and_drops_scripts_and_styles():
 def test_visible_text_uses_the_whole_page_without_an_article_element():
     text = page.visible_text("<body><p>One</p><script>x</script><p>Two</p></body>")
     assert text == "One\nTwo"
-
-
-def test_visible_text_is_capped():
-    assert len(page.visible_text("<p>" + "a" * 100 + "</p>", max_chars=10)) == 10

@@ -26,13 +26,13 @@ def meta(html: str, *names: str):
             key.lower(): html_lib.unescape(double or single)
             for key, double, single in _ATTRIBUTE.findall(tag)
         }
-        key = attributes.get("property") or attributes.get("name")
-        content = attributes.get("content")
-        if key and content and key.lower() not in found:
-            found[key.lower()] = content.strip()
+        key = (attributes.get("property") or attributes.get("name") or "").lower()
+        content = (attributes.get("content") or "").strip()
+        if key and content:
+            found.setdefault(key, content)
     for name in names:
-        if found.get(name.lower()):
-            return found[name.lower()]
+        if content := found.get(name.lower()):
+            return content
     return None
 
 

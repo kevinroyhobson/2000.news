@@ -10,6 +10,7 @@ def _install_stubs():
     boto3.resource = lambda *args, **kwargs: types.SimpleNamespace(Table=lambda name: None)
     sys.modules.setdefault("boto3", boto3)
     lock = types.ModuleType("lib.tournament_lock")
+    lock.acquire = lambda: None
     lib = types.ModuleType("lib")
     lib.tournament_lock = lock
     sys.modules.setdefault("lib", lib)
@@ -41,5 +42,5 @@ def test_a_batch_of_only_deferred_headlines_starts_nothing():
 
 
 def test_one_scheduled_headline_in_the_batch_is_enough_to_run():
-    assert not all(tournament._is_deferred(r) for r in [_record(True), _record()])
-    assert not tournament._is_deferred(_record(False))
+    event = {"Records": [_record(True), _record()]}
+    assert tournament.tournament(event, None) == "Tournament already running"

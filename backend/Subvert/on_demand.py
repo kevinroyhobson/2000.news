@@ -20,8 +20,6 @@ from Subvert.pipeline import (
     save_generated_headlines,
 )
 
-DEFERRED_HEADLINE = {"Deferred": True}
-
 
 def subvert_synchronously(stories: list) -> list:
     """stories: pipeline-shaped dicts (see Subvert.subvert.pipeline_story).
@@ -39,4 +37,4 @@ def subvert_synchronously(stories: list) -> list:
     generate_requests = build_generate_requests(stories, angles_per_story)
     generated = run_synchronously(client, generate_requests)
     return save_generated_headlines(stories, angles_per_story, generate_requests, generated,
-                                    extra_attributes=DEFERRED_HEADLINE)
+                                    extra_attributes={"Deferred": True})

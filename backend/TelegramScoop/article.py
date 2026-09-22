@@ -120,7 +120,9 @@ def _extract_article(text: str) -> dict:
 
 
 def _iso_timestamp(published) -> str:
-    try:
-        return datetime.datetime.fromisoformat(str(published)).isoformat()
-    except (TypeError, ValueError):
-        return datetime.datetime.now(ZoneInfo("America/New_York")).isoformat()
+    if published:
+        try:
+            return datetime.datetime.fromisoformat(published).isoformat()
+        except ValueError:
+            pass
+    return datetime.datetime.now(ZoneInfo("America/New_York")).isoformat()

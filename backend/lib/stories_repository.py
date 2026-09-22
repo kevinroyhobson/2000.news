@@ -35,7 +35,7 @@ class StoriesRepository:
             return None
 
         item = {
-            'YearMonthDay': year_month_day or _day_key(story['pubDate']),
+            'YearMonthDay': year_month_day or datetime.datetime.fromisoformat(story['pubDate']).strftime('%Y%m%d'),
             'PublishedAt': story['pubDate'],
             'Title': story['title'],
             'Description': story['description'],
@@ -67,7 +67,3 @@ class StoriesRepository:
                 raise ex
 
         return None
-
-
-def _day_key(published_at):
-    return datetime.datetime.fromisoformat(published_at).strftime('%Y%m%d')
