@@ -1,5 +1,5 @@
 """
-Verify Opus 4.7 prompt caching works against the actual Tournament prompt.
+Verify Opus prompt caching works against the actual Tournament prompt.
 
 Reads the materialized exemplar cache from DDB, constructs the same system
 prompt the Tournament Lambda would build at module load, and makes two
@@ -59,7 +59,7 @@ client = anthropic.Anthropic(api_key=api_key)
 
 def call(label: str):
     r = client.messages.create(
-        model='claude-opus-4-8',
+        model='claude-opus-5-5',
         max_tokens=50,
         system=[{
             'type': 'text',

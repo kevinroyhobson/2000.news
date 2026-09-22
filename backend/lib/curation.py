@@ -23,16 +23,16 @@ TABLE_NAME = 'SubvertedHeadlines'
 
 GRADES = ('outstanding', 'solid', 'meh', 'bad')
 
-RATIONALE_MODEL = 'claude-opus-4-8'
+RATIONALE_MODEL = 'claude-opus-5-5'
 RATIONALE_FALLBACK_MODEL = 'claude-sonnet-5'
 
 # A single synthetic item in SubvertedHeadlines holds the materialized top-20
 # "outstanding" exemplars for the Tournament prompt. Keeps Tournament's load
 # path to a single GetItem (no scan, no time window) so curation can be sparse.
 EXEMPLAR_CACHE_KEY = {'YearMonthDay': 'META', 'HeadlineId': 'outstanding_exemplars'}
-# Target total system-prompt tokens after exemplars are appended. Picked to
-# clear Opus 4.7's 4,096-token cache threshold with ~20% buffer, while
-# staying small enough that the judge isn't drowning in pattern-match anchors.
+# Target total system-prompt tokens after exemplars are appended. Big enough
+# to carry a useful spread of exemplars, small enough that the judge isn't
+# drowning in pattern-match anchors.
 EXEMPLAR_TOKEN_TARGET = int(os.getenv('EXEMPLAR_TOKEN_TARGET', '5000'))
 # Hard upper bound on exemplars cached, regardless of token budget. Floor on
 # overfit risk if the rationales are unusually short.
@@ -81,7 +81,7 @@ def _gen_rationale_once(headline: str, original: str, model: str) -> str:
     client = get_anthropic_client()
     msg = client.messages.create(
         model=model,
-        # Adaptive thinking on both the Opus 4.8 primary and Sonnet 5 fallback.
+        # Adaptive thinking on both the Opus 5.5 primary and Sonnet 5 fallback.
         # The rationale is one sentence, but thinking tokens count against
         # max_tokens, so this is bumped well above the answer size to leave room
         # for the think. The text-block filter below already skips the thinking
@@ -203,7 +203,7 @@ def _build_appendix(headlines: list) -> str:
 def _count_prompt_tokens(client, system_text: str) -> int:
     """Count tokens for a system prompt as Tournament would send it."""
     r = client.messages.count_tokens(
-        model='claude-opus-4-8',
+        model='claude-opus-5-5',
         system=[{'type': 'text', 'text': system_text}],
         messages=[{'role': 'user', 'content': 'placeholder'}],
     )

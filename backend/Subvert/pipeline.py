@@ -53,18 +53,21 @@ langfuse = get_client()
 # MODEL CONFIGURATION
 # Set per stage via environment variables. Every call runs through the
 # Anthropic Batch API, so models must be Anthropic:
-# claude-haiku-4-5, claude-sonnet-5, claude-opus-4-8
+# claude-haiku-4-5, claude-sonnet-5, claude-opus-5-5
 # =============================================================================
 
-BRAINSTORM_MODEL = os.getenv("BRAINSTORM_MODEL", "claude-opus-4-8")
-GENERATE_MODEL = os.getenv("GENERATE_MODEL", "claude-haiku-4-5-20251001")
+BRAINSTORM_MODEL = os.getenv("BRAINSTORM_MODEL", "claude-opus-5-5")
+# Thinking depth for Stage 1. effort requires Sonnet 4.6+/Opus — remove it
+# before pointing BRAINSTORM_MODEL at Haiku.
+BRAINSTORM_EFFORT = os.getenv("BRAINSTORM_EFFORT", "high")
+GENERATE_MODEL = os.getenv("GENERATE_MODEL", "claude-sonnet-5")
+# Same Haiku caveat as BRAINSTORM_EFFORT.
+GENERATE_EFFORT = os.getenv("GENERATE_EFFORT", "medium")
 
 # Stage 2 (headline generation) model A/B: one random.choice per angle,
-# recorded on each headline as GenerateModel. Currently single-model (100%
-# Haiku 4.5) — the Haiku-vs-Sonnet test showed no taste-detectable quality gap
-# at 3x the cost. To A/B again, add model IDs back to this list; the per-angle
-# selection (made at submit time, carried on the angle in state) and
-# GenerateModel tagging stay wired up.
+# recorded on each headline as GenerateModel. Currently single-model. To A/B,
+# add model IDs to this list; the per-angle selection (made at submit time,
+# carried on the angle in state) and GenerateModel tagging stay wired up.
 STAGE_2_AB_MODELS = [GENERATE_MODEL]
 
 _anthropic_client = None
@@ -78,7 +81,7 @@ def get_anthropic_client():
     return _anthropic_client
 
 
-# Static system prompt for brainstorm stage (>1024 tokens for Anthropic prompt caching)
+# Static system prompt for brainstorm stage, cached via cache_control.
 BRAINSTORM_SYSTEM_PROMPT = """You are a veteran comedy writer brainstorming angles for a satirical newspaper (The Onion meets SimCity 2000). The house voice leans dark — gallows humor, deadpan grimness, and uncomfortable truths land harder than safe punchlines; don't soften the punch to be polite. Given a real headline, find every comedic angle — puns, wordplay, absurdist reframings, dark satire — for a headline writer to develop. Quantity AND quality: each angle needs a real comedic mechanism, not a vague gesture at humor.
 
 ANGLE TYPES (aim for variety):
@@ -254,7 +257,11 @@ Aim to work 2–3 of these in across your angles. Awkward or forced fits are oft
         "custom_id": f"story-{index}",
         "params": {
             "model": BRAINSTORM_MODEL,
-            "max_tokens": 1024,
+            # Opus 5.5 always thinks and its thinking counts against
+            # max_tokens, so this leaves room for the think ahead of the
+            # ~1K-token angles JSON.
+            "max_tokens": 16000,
+            "output_config": {"effort": BRAINSTORM_EFFORT},
             "system": [{
                 "type": "text",
                 "text": BRAINSTORM_SYSTEM_PROMPT,
@@ -339,7 +346,10 @@ Return as JSON array:
                 "custom_id": f"gen-{si}-{ai}",
                 "params": {
                     "model": angle["generate_model"],
-                    "max_tokens": 1024,
+                    # Sonnet 5 thinks by default, and thinking counts against
+                    # max_tokens.
+                    "max_tokens": 8000,
+                    "output_config": {"effort": GENERATE_EFFORT},
                     "messages": [{"role": "user", "content": prompt}],
                 },
             })
