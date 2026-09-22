@@ -53,10 +53,13 @@ langfuse = get_client()
 # MODEL CONFIGURATION
 # Set per stage via environment variables. Every call runs through the
 # Anthropic Batch API, so models must be Anthropic:
-# claude-haiku-4-5, claude-sonnet-5, claude-opus-4-8
+# claude-haiku-4-5, claude-sonnet-5, claude-opus-5-5
 # =============================================================================
 
-BRAINSTORM_MODEL = os.getenv("BRAINSTORM_MODEL", "claude-opus-4-8")
+BRAINSTORM_MODEL = os.getenv("BRAINSTORM_MODEL", "claude-opus-5-5")
+# Thinking depth for Stage 1. effort requires Sonnet 4.6+/Opus — remove it
+# before pointing BRAINSTORM_MODEL at Haiku.
+BRAINSTORM_EFFORT = os.getenv("BRAINSTORM_EFFORT", "low")
 GENERATE_MODEL = os.getenv("GENERATE_MODEL", "claude-haiku-4-5-20251001")
 
 # Stage 2 (headline generation) model A/B: one random.choice per angle,
@@ -254,7 +257,11 @@ Aim to work 2–3 of these in across your angles. Awkward or forced fits are oft
         "custom_id": f"story-{index}",
         "params": {
             "model": BRAINSTORM_MODEL,
-            "max_tokens": 1024,
+            # Opus 5.5 always thinks and its thinking counts against
+            # max_tokens, so this leaves room for the think ahead of the
+            # ~1K-token angles JSON.
+            "max_tokens": 8000,
+            "output_config": {"effort": BRAINSTORM_EFFORT},
             "system": [{
                 "type": "text",
                 "text": BRAINSTORM_SYSTEM_PROMPT,

@@ -66,7 +66,7 @@ langfuse = get_client()
 
 SURVIVOR_COUNT = 64
 VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
-MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-4-8")
+MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-5-5")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
 # Thinking depth per round type: mass-cut rounds (see _use_pick3) run pick-3
 # at high effort because the cut is the only irreversible decision, full-rank

@@ -23,7 +23,7 @@ TABLE_NAME = 'SubvertedHeadlines'
 
 GRADES = ('outstanding', 'solid', 'meh', 'bad')
 
-RATIONALE_MODEL = 'claude-opus-4-8'
+RATIONALE_MODEL = 'claude-opus-5-5'
 RATIONALE_FALLBACK_MODEL = 'claude-sonnet-5'
 
 # A single synthetic item in SubvertedHeadlines holds the materialized top-20
@@ -81,7 +81,7 @@ def _gen_rationale_once(headline: str, original: str, model: str) -> str:
     client = get_anthropic_client()
     msg = client.messages.create(
         model=model,
-        # Adaptive thinking on both the Opus 4.8 primary and Sonnet 5 fallback.
+        # Adaptive thinking on both the Opus 5.5 primary and Sonnet 5 fallback.
         # The rationale is one sentence, but thinking tokens count against
         # max_tokens, so this is bumped well above the answer size to leave room
         # for the think. The text-block filter below already skips the thinking
@@ -203,7 +203,7 @@ def _build_appendix(headlines: list) -> str:
 def _count_prompt_tokens(client, system_text: str) -> int:
     """Count tokens for a system prompt as Tournament would send it."""
     r = client.messages.count_tokens(
-        model='claude-opus-4-8',
+        model='claude-opus-5-5',
         system=[{'type': 'text', 'text': system_text}],
         messages=[{'role': 'user', 'content': 'placeholder'}],
     )

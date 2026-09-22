@@ -177,7 +177,7 @@ Resources:
       Timeout: 600
       Environment:
         Variables:
-          BRAINSTORM_MODEL: claude-opus-4-8
+          BRAINSTORM_MODEL: claude-opus-5-5
           GENERATE_MODEL: claude-haiku-4-5-20251001
       Policies:
         - DynamoDBCrudPolicy:
@@ -243,7 +243,7 @@ Resources:
       Timeout: 900
       Environment:
         Variables:
-          TOURNAMENT_MODEL_FINAL: claude-opus-4-8
+          TOURNAMENT_MODEL_FINAL: claude-opus-5-5
           TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
           # Thinking depth per round type. Mass-cut rounds (same-day rounds
           # whose losers all land below the top-64 survivor line) ask for just
