@@ -33,7 +33,7 @@ Ranking system:
   effort. Those losers' ranks are discarded, so deliberation goes entirely to
   the cut — the tournament's one irreversible decision. Non-picked headlines
   record a tied position.
-- All other elimination rounds: full 1-through-N group ranking at low effort,
+- All other elimination rounds: full 1-through-N group ranking at medium effort,
   because their losers' positions are published (same-day survivor ranks up
   to 64; every cross-day loser's CrossDayRank drives /today).
 """
@@ -70,12 +70,12 @@ MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-5-5")
 MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
 # Thinking depth per round type: mass-cut rounds (see _use_pick3) run pick-3
 # at high effort because the cut is the only irreversible decision, full-rank
-# elimination rounds run low because a coarse ordering is enough, and the
-# final runs high. Passed explicitly so behavior is pinned even if the API's
+# elimination rounds run medium because their loser positions are published
+# but a coarse ordering is enough, and the final runs high. Passed explicitly so behavior is pinned even if the API's
 # default effort changes. effort requires Sonnet 4.6+/Opus — remove it before
 # pointing MODEL_ELIMINATION at Haiku.
 EFFORT_CUT = os.getenv("TOURNAMENT_CUT_EFFORT", "high")
-EFFORT_ELIMINATION = os.getenv("TOURNAMENT_ELIMINATION_EFFORT", "low")
+EFFORT_ELIMINATION = os.getenv("TOURNAMENT_ELIMINATION_EFFORT", "medium")
 EFFORT_FINAL = os.getenv("TOURNAMENT_FINAL_EFFORT", "high")
 # Adaptive thinking counts its reasoning tokens against max_tokens, so every
 # judge call gets at least this much headroom ahead of the answer line. It's
@@ -117,8 +117,8 @@ def get_anthropic_client():
 
 # ---------------------------------------------------------------------------
 # System prompt, cached via cache_control. With the appended exemplars it
-# clears every model's minimum cacheable prefix (Opus 4.x: 4096 tokens,
-# Sonnet 4.6: 2048). Requests inside one batch process concurrently, so cache
+# clears every judge model's minimum cacheable prefix (Opus 5.5: 512 tokens,
+# Sonnet 5: 1024). Requests inside one batch process concurrently, so cache
 # hits are best-effort; the marker costs nothing on a miss.
 # ---------------------------------------------------------------------------
 TOURNAMENT_SYSTEM_PROMPT = """You are a veteran comedy editor judging satirical news headlines in the style of The Onion and SimCity 2000's newspaper ticker. Your job is to rank headlines from best to worst based on craft and humor. You have decades of experience in satirical journalism and know exactly what separates a headline that gets a polite chuckle from one that makes coffee come out of someone's nose.

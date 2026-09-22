@@ -59,7 +59,7 @@ langfuse = get_client()
 BRAINSTORM_MODEL = os.getenv("BRAINSTORM_MODEL", "claude-opus-5-5")
 # Thinking depth for Stage 1. effort requires Sonnet 4.6+/Opus — remove it
 # before pointing BRAINSTORM_MODEL at Haiku.
-BRAINSTORM_EFFORT = os.getenv("BRAINSTORM_EFFORT", "low")
+BRAINSTORM_EFFORT = os.getenv("BRAINSTORM_EFFORT", "high")
 GENERATE_MODEL = os.getenv("GENERATE_MODEL", "claude-haiku-4-5-20251001")
 
 # Stage 2 (headline generation) model A/B: one random.choice per angle,
@@ -81,7 +81,7 @@ def get_anthropic_client():
     return _anthropic_client
 
 
-# Static system prompt for brainstorm stage (>1024 tokens for Anthropic prompt caching)
+# Static system prompt for brainstorm stage, cached via cache_control.
 BRAINSTORM_SYSTEM_PROMPT = """You are a veteran comedy writer brainstorming angles for a satirical newspaper (The Onion meets SimCity 2000). The house voice leans dark — gallows humor, deadpan grimness, and uncomfortable truths land harder than safe punchlines; don't soften the punch to be polite. Given a real headline, find every comedic angle — puns, wordplay, absurdist reframings, dark satire — for a headline writer to develop. Quantity AND quality: each angle needs a real comedic mechanism, not a vague gesture at humor.
 
 ANGLE TYPES (aim for variety):
@@ -260,7 +260,7 @@ Aim to work 2–3 of these in across your angles. Awkward or forced fits are oft
             # Opus 5.5 always thinks and its thinking counts against
             # max_tokens, so this leaves room for the think ahead of the
             # ~1K-token angles JSON.
-            "max_tokens": 8000,
+            "max_tokens": 16000,
             "output_config": {"effort": BRAINSTORM_EFFORT},
             "system": [{
                 "type": "text",

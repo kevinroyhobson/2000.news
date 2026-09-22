@@ -30,9 +30,9 @@ RATIONALE_FALLBACK_MODEL = 'claude-sonnet-5'
 # "outstanding" exemplars for the Tournament prompt. Keeps Tournament's load
 # path to a single GetItem (no scan, no time window) so curation can be sparse.
 EXEMPLAR_CACHE_KEY = {'YearMonthDay': 'META', 'HeadlineId': 'outstanding_exemplars'}
-# Target total system-prompt tokens after exemplars are appended. Picked to
-# clear Opus 4.7's 4,096-token cache threshold with ~20% buffer, while
-# staying small enough that the judge isn't drowning in pattern-match anchors.
+# Target total system-prompt tokens after exemplars are appended. Big enough
+# to carry a useful spread of exemplars, small enough that the judge isn't
+# drowning in pattern-match anchors.
 EXEMPLAR_TOKEN_TARGET = int(os.getenv('EXEMPLAR_TOKEN_TARGET', '5000'))
 # Hard upper bound on exemplars cached, regardless of token budget. Floor on
 # overfit risk if the rationales are unusually short.
