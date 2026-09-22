@@ -28,6 +28,7 @@ Pipeline:
   deploy              Deploy backend (./deploy.sh backend)
   deploy-all          Deploy backend + frontend
   fetch               Manually invoke the Fetch Lambda
+  fetch-topic         Search newsdata.io for a topic and file the results
 
 Use 'news <command> --help' for command-specific args.
 EOF
@@ -51,6 +52,7 @@ case "$cmd" in
     analyze)        run_python Scratch/analyze_grades.py "$@" ;;
     cache-test)     run_python Scratch/test_cache_hit.py "$@" ;;
     telegram-webhook) run_python Scratch/telegram_webhook.py "$@" ;;
+    fetch-topic)    run_python Fetch/fetch_topic.py "$@" ;;
     deploy)         cd "$HERE" && exec ./deploy.sh backend "$@" ;;
     deploy-all)     cd "$HERE" && exec ./deploy.sh "$@" ;;
     fetch)

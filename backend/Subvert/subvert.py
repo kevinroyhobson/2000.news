@@ -16,6 +16,8 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from dynamodb_json import json_util as dynamodb_json
 
+from lib.stories_repository import ON_DEMAND_FETCH_PREFIX
+
 _dynamo_resource = boto3.resource("dynamodb")
 _headlines_table = _dynamo_resource.Table("SubvertedHeadlines")
 _sfn = boto3.client("stepfunctions")
@@ -50,17 +52,15 @@ def subvert(event, context):
             continue
         seen.add(key)
 
+        if story.get("FetchCategory", "").startswith(ON_DEMAND_FETCH_PREFIX):
+            print(f"Skipped {story['Title']} because it is subverted on demand.")
+            continue
+
         if story_id and do_headlines_exist_for_story(story["YearMonthDay"], story_id):
             print(f"Skipped {story['Title']} because headlines already exist.")
             continue
 
-        stories.append({
-            "year_month_day": story["YearMonthDay"],
-            "story_id": story_id,
-            "title": story["Title"],
-            "description": story.get("Description") or "",
-            "entity_hints": _collect_entity_hints(story),
-        })
+        stories.append(pipeline_story(story))
 
     if not stories:
         print("No stories to process.")
@@ -73,6 +73,17 @@ def subvert(event, context):
     )
     print(f"Started {execution['executionArn']} for {len(stories)} stories")
     return f"Started pipeline for {len(stories)} stories"
+
+
+def pipeline_story(story: dict) -> dict:
+    """The slice of a Stories item the pipeline prompts are built from."""
+    return {
+        "year_month_day": story["YearMonthDay"],
+        "story_id": story.get("StoryId", ""),
+        "title": story["Title"],
+        "description": story.get("Description") or "",
+        "entity_hints": _collect_entity_hints(story),
+    }
 
 
 def _collect_entity_hints(story: dict) -> list:

@@ -8,8 +8,8 @@ rationale for an outstanding pick.
 ```
 you tap 🔥 on a channel post
         |
-Telegram --POST /telegram/reaction--> webhook.py   (verifies the secret token,
-        |                                           returns 200 immediately)
+Telegram --POST /telegram/webhook--> TelegramWebhook/webhook.py
+        |                                (verifies the secret token, returns 200 immediately)
         | async invoke
         v
      grade.py  -> resolve message -> headline   (TelegramSentHeadlines.MessageIdIndex)
@@ -55,8 +55,9 @@ with no user attached, so **any subscriber's tap grades the headline**.
    updates only to admins.
 3. Register the webhook: `news telegram-webhook --register`. This generates
    `/2000news/telegram-webhook-secret` in SSM on first run and subscribes to
-   `message_reaction` and `message_reaction_count` — reaction updates are
-   opt-in, and nothing arrives without them in `allowed_updates`.
+   `message_reaction` and `message_reaction_count` (plus `channel_post` for
+   TelegramScoop) — these updates are opt-in, and nothing arrives without
+   them in `allowed_updates`.
 4. Check it any time with `news telegram-webhook --info`; `--delete` stops
    delivery.
 
@@ -66,7 +67,8 @@ for 14 days, so you can scroll back about that far.
 
 ## Files
 
-- `webhook.py` — authenticates and dispatches; nothing else.
+- `../TelegramWebhook/webhook.py` — authenticates and dispatches; nothing else.
+  Shared with TelegramScoop, since a bot gets one webhook.
 - `grade.py` — the grading worker.
 - `reactions.py` — update → grade, pure functions (`tests/test_telegram_reactions.py`).
 - `../lib/curation.py` — grade writes, rationale, exemplar cache. Shared with

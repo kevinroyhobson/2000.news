@@ -68,7 +68,7 @@ def _cancel_and_drain(client, batch_id, timeout_seconds=180) -> bool:
     return False
 
 
-def _extract_text(message) -> str:
+def extract_text(message) -> str:
     """The answer lives in the first text block; with thinking enabled, the
     content list can open with a (possibly empty) thinking block."""
     for block in message.content:
@@ -112,7 +112,7 @@ def resolve_batch(client, batch, requests, sync_max_workers=8) -> dict:
                 message = result.result.message
                 try:
                     resolved[result.custom_id] = {
-                        "text": _extract_text(message),
+                        "text": extract_text(message),
                         "usage": _usage_dict(message.usage),
                         "via": "batch",
                     }
@@ -127,22 +127,33 @@ def resolve_batch(client, batch, requests, sync_max_workers=8) -> dict:
     stragglers = [r for r in requests if r["custom_id"] not in resolved]
     if stragglers:
         print(f"[batches] Sync fallback for {len(stragglers)}/{len(requests)} requests")
-        with ThreadPoolExecutor(max_workers=min(sync_max_workers, len(stragglers))) as pool:
-            futures = {
-                pool.submit(client.messages.create, **r["params"]): r["custom_id"]
-                for r in stragglers
-            }
-            for future in as_completed(futures):
-                custom_id = futures[future]
-                try:
-                    message = future.result()
-                    resolved[custom_id] = {
-                        "text": _extract_text(message),
-                        "usage": _usage_dict(message.usage),
-                        "via": "sync",
-                    }
-                except Exception as e:
-                    print(f"[batches] Sync fallback failed for {custom_id}: {e}")
-                    resolved[custom_id] = {"error": str(e)}
+        resolved.update(run_synchronously(client, stragglers, max_workers=sync_max_workers))
 
+    return resolved
+
+
+def run_synchronously(client, requests, max_workers=8) -> dict:
+    """Run requests as parallel messages.create calls at standard pricing.
+
+    Returns the same {custom_id: {"text", "usage", "via": "sync"}} shape as
+    resolve_batch; a failed request maps to {"error": str}.
+    """
+    resolved = {}
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(requests))) as pool:
+        futures = {
+            pool.submit(client.messages.create, **r["params"]): r["custom_id"]
+            for r in requests
+        }
+        for future in as_completed(futures):
+            custom_id = futures[future]
+            try:
+                message = future.result()
+                resolved[custom_id] = {
+                    "text": extract_text(message),
+                    "usage": _usage_dict(message.usage),
+                    "via": "sync",
+                }
+            except Exception as e:
+                print(f"[batches] Sync request failed for {custom_id}: {e}")
+                resolved[custom_id] = {"error": str(e)}
     return resolved

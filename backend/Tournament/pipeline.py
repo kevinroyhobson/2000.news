@@ -341,7 +341,7 @@ def _build_round_requests(state: dict) -> list:
     cross_day = state["mode"] == "cross_day"
     pick3 = _use_pick3(state)
     return [
-        _build_ranking_request(
+        build_ranking_request(
             f"r{state['round_num']}-g{i}",
             [lookup[(ref["day"], ref["id"])] for ref in group],
             remaining=state["remaining"],
@@ -383,7 +383,7 @@ def process_round(state: dict) -> dict:
                 order = _parse_pick3(result["text"], len(group))
                 explanation = ""
             else:
-                order, explanation = _parse_ranking(result["text"], len(group))
+                order, explanation = parse_ranking(result["text"], len(group))
             if VERBOSE and explanation:
                 print(f"  Group {i} explanation: {explanation}")
         else:
@@ -444,7 +444,7 @@ def _build_final_requests(state: dict) -> list:
     lenses = FINAL_ENSEMBLE_LENSES[:n_judges] if n_judges > 1 and len(group_refs) >= 3 else [None]
 
     return [
-        _build_ranking_request(
+        build_ranking_request(
             f"final-{i}", group_data,
             remaining=len(group_refs),
             model=MODEL_FINAL,
@@ -478,7 +478,7 @@ def process_final(state: dict) -> dict:
                       "effort": EFFORT_FINAL, "judge_mode": "full_rank",
                       "mode": state["mode"], "via": result["via"]},
         )
-        order, _ = _parse_ranking(result["text"], len(group))
+        order, _ = parse_ranking(result["text"], len(group))
         orderings.append([group[j] for j in order])
 
     if not orderings:
@@ -643,7 +643,7 @@ def _days_with_unprocessed_headlines(run_day: str) -> list:
     if today != run_day:
         days.append(today)
     return [day for day in days
-            if any(h.get("tournament_batch") is None
+            if any(h.get("tournament_batch") is None and not h.get("deferred")
                    for h in get_headlines_for_day(day))]
 
 
@@ -662,7 +662,7 @@ def abort(state: dict) -> dict:
 # Ranking request building and parsing
 # ---------------------------------------------------------------------------
 
-def _build_ranking_request(custom_id: str, group_data: list, *, remaining: int,
+def build_ranking_request(custom_id: str, group_data: list, *, remaining: int,
                            model: str, effort: str, cross_day: bool,
                            lens: str = None, pick3: bool = False) -> dict:
     """
@@ -799,7 +799,7 @@ def _parse_pick3(response_text: str, group_size: int) -> list:
     return picks[:want]
 
 
-def _parse_ranking(response_text: str, group_size: int) -> tuple:
+def parse_ranking(response_text: str, group_size: int) -> tuple:
     """
     Map the ranked letter line of a judge response to group indices.
     Returns (ordered_indices, explanation). Indices the judge skipped are
@@ -871,6 +871,7 @@ def get_headlines_for_day(day_key: str) -> list:
         'tournament_batch': item.get('TournamentBatch'),
         'survived': item.get('Survived'),
         'rank': item.get('Rank'),
+        'deferred': item.get('Deferred', False),
     } for item in items]
 
 

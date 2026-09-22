@@ -28,7 +28,6 @@ submit time and carried in state so rebuilds produce the same prompts.
 
 import datetime
 import hashlib
-import json
 import os
 import random
 
@@ -38,6 +37,7 @@ import anthropic
 from langfuse import get_client, observe
 
 from lib.anthropic_batches import check_batch_state, resolve_batch, submit_batch
+from lib.llm_json import parse_json_response
 from lib.ssm_secrets import get_secret
 
 from zoneinfo import ZoneInfo
@@ -234,12 +234,12 @@ def submit_brainstorm(state: dict) -> dict:
         {**story, "random_words": get_random_words(8)}
         for story in state["stories"]
     ]
-    requests = [_build_brainstorm_request(s, i) for i, s in enumerate(stories)]
+    requests = [build_brainstorm_request(s, i) for i, s in enumerate(stories)]
     batch = submit_batch(get_anthropic_client(), requests)
     return {**state, "stories": stories, "batch": batch}
 
 
-def _build_brainstorm_request(story: dict, index: int) -> dict:
+def build_brainstorm_request(story: dict, index: int) -> dict:
     entity_line = ""
     if story.get("entity_hints"):
         entity_line = f"\nReal people, orgs, and topics from the story: {', '.join(story['entity_hints'])}"
@@ -273,45 +273,51 @@ def submit_generate(state: dict) -> dict:
     """Collect brainstorm results, parse angles, submit the generate batch."""
     client = get_anthropic_client()
     stories = state["stories"]
-    brainstorm_requests = [_build_brainstorm_request(s, i) for i, s in enumerate(stories)]
+    brainstorm_requests = [build_brainstorm_request(s, i) for i, s in enumerate(stories)]
     resolved = resolve_batch(client, state["batch"], brainstorm_requests)
 
-    angles_per_story = []
-    for i, story in enumerate(stories):
-        result = resolved.get(f"story-{i}", {})
-        angles = []
-        if "text" in result:
-            _log_generation(
-                model=BRAINSTORM_MODEL,
-                params=brainstorm_requests[i]["params"],
-                output=result["text"],
-                usage=result["usage"],
-                metadata={"stage": "brainstorm", "via": result["via"],
-                          "story_id": story["story_id"]},
-            )
-            angles = parse_json_response(result["text"])
+    angles_per_story = [
+        angles_from_brainstorm(story, brainstorm_requests[i], resolved.get(f"story-{i}", {}))
+        for i, story in enumerate(stories)
+    ]
 
-        # Ensure we have at least some angles even if the call or parse failed
-        if not angles:
-            angles = [
-                {"angle_name": "wordplay", "setup": "Find puns", "keywords": []},
-                {"angle_name": "rhyme", "setup": "Make it rhyme", "keywords": []},
-                {"angle_name": "absurd", "setup": "Go weird", "keywords": []},
-            ]
-
-        angles = [a for a in angles if isinstance(a, dict)][:5]
-        for a in angles:
-            a["brainstorm_model"] = BRAINSTORM_MODEL
-            a["generate_model"] = random.choice(STAGE_2_AB_MODELS)
-        angles_per_story.append(angles)
-        print(f"[{story['story_id']}] {len(angles)} angles: {[a.get('angle_name') for a in angles]}")
-
-    generate_requests = _build_generate_requests(stories, angles_per_story)
+    generate_requests = build_generate_requests(stories, angles_per_story)
     batch = submit_batch(client, generate_requests)
     return {**state, "angles": angles_per_story, "batch": batch}
 
 
-def _build_generate_requests(stories: list, angles_per_story: list) -> list:
+FALLBACK_ANGLES = [
+    {"angle_name": "wordplay", "setup": "Find puns", "keywords": []},
+    {"angle_name": "rhyme", "setup": "Make it rhyme", "keywords": []},
+    {"angle_name": "absurd", "setup": "Go weird", "keywords": []},
+]
+
+
+def angles_from_brainstorm(story: dict, request: dict, result: dict) -> list:
+    """Parse one story's brainstorm result into angles tagged with the models
+    that will write them. A failed call or unparseable answer still yields a
+    few generic angles so the story gets headlines."""
+    angles = []
+    if "text" in result:
+        _log_generation(
+            model=BRAINSTORM_MODEL,
+            params=request["params"],
+            output=result["text"],
+            usage=result["usage"],
+            metadata={"stage": "brainstorm", "via": result["via"],
+                      "story_id": story["story_id"]},
+        )
+        angles = parse_json_response(result["text"])
+
+    angles = [a for a in angles if isinstance(a, dict)][:5] or [dict(a) for a in FALLBACK_ANGLES]
+    for a in angles:
+        a["brainstorm_model"] = BRAINSTORM_MODEL
+        a["generate_model"] = random.choice(STAGE_2_AB_MODELS)
+    print(f"[{story['story_id']}] {len(angles)} angles: {[a.get('angle_name') for a in angles]}")
+    return angles
+
+
+def build_generate_requests(stories: list, angles_per_story: list) -> list:
     requests = []
     for si, (story, angles) in enumerate(zip(stories, angles_per_story)):
         for ai, angle in enumerate(angles):
@@ -351,12 +357,19 @@ def save_headlines(state: dict) -> dict:
     client = get_anthropic_client()
     stories = state["stories"]
     angles_per_story = state["angles"]
-    requests = _build_generate_requests(stories, angles_per_story)
-    requests_by_id = {r["custom_id"]: r for r in requests}
+    requests = build_generate_requests(stories, angles_per_story)
     resolved = resolve_batch(client, state["batch"], requests)
+    saved = save_generated_headlines(stories, angles_per_story, requests, resolved)
+    return {**state, "saved": len(saved)}
 
+
+def save_generated_headlines(stories: list, angles_per_story: list, requests: list,
+                             resolved: dict, extra_attributes: dict = None) -> list:
+    """Parse every angle's generated headlines and write them to
+    SubvertedHeadlines. Returns the written items."""
+    requests_by_id = {r["custom_id"]: r for r in requests}
     create_time = datetime.datetime.now().isoformat()
-    total_saved = 0
+    saved = []
 
     for si, (story, angles) in enumerate(zip(stories, angles_per_story)):
         story_saved = 0
@@ -381,26 +394,26 @@ def save_headlines(state: dict) -> dict:
             for hi, parsed in enumerate(parse_json_response(result["text"])):
                 if not (isinstance(parsed, dict) and parsed.get("headline")):
                     continue
-                _headlines_table.put_item(
-                    Item={
-                        "YearMonthDay": story["year_month_day"],
-                        "HeadlineId": _headline_id(story["story_id"], ai, hi),
-                        "CreateTime": create_time,
-                        "Headline": parsed["headline"],
-                        "Angle": angle.get("angle_name", "unknown"),
-                        "AngleSetup": angle.get("setup", ""),
-                        "BrainstormModel": angle.get("brainstorm_model", ""),
-                        "GenerateModel": angle.get("generate_model", ""),
-                        "StoryId": story["story_id"],
-                        "OriginalHeadline": story["title"],
-                    }
-                )
+                item = {
+                    "YearMonthDay": story["year_month_day"],
+                    "HeadlineId": _headline_id(story["story_id"], ai, hi),
+                    "CreateTime": create_time,
+                    "Headline": parsed["headline"],
+                    "Angle": angle.get("angle_name", "unknown"),
+                    "AngleSetup": angle.get("setup", ""),
+                    "BrainstormModel": angle.get("brainstorm_model", ""),
+                    "GenerateModel": angle.get("generate_model", ""),
+                    "StoryId": story["story_id"],
+                    "OriginalHeadline": story["title"],
+                    **(extra_attributes or {}),
+                }
+                _headlines_table.put_item(Item=item)
+                saved.append(item)
                 story_saved += 1
 
         print(f"Saved {story_saved} headlines for story {story['story_id']} ('{story['title']}')")
-        total_saved += story_saved
 
-    return {**state, "saved": total_saved}
+    return saved
 
 
 def _headline_id(story_id: str, angle_index: int, headline_index: int) -> str:
@@ -429,31 +442,6 @@ def _log_generation(model: str, params: dict, output: str, usage: dict, metadata
         usage_details=usage,
         metadata=metadata,
     )
-
-
-def parse_json_response(response_text: str) -> list:
-    """Parse JSON from model response, handling markdown code blocks."""
-    try:
-        return json.loads(response_text)
-    except json.JSONDecodeError:
-        try:
-            # Try to find JSON array in the text
-            json_start = response_text.find("[")
-            if json_start == -1:
-                json_start = response_text.find("{")
-            json_end = response_text.rfind("]") + 1
-            if json_end == 0:
-                json_end = response_text.rfind("}") + 1
-
-            if json_start != -1 and json_end != 0:
-                json_str = response_text[json_start:json_end]
-                return json.loads(json_str)
-            else:
-                raise ValueError("No valid JSON found in response")
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Error parsing response: {e}")
-            print(f"Response text: {response_text}")
-            return []
 
 
 def get_random_words(num_words: int):

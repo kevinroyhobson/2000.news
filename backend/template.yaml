@@ -339,27 +339,32 @@ Resources:
             ParameterName: 2000news/*
 
   # Telegram's webhook target. Authenticates the secret token and hands the
-  # update off asynchronously — grading takes a Claude call, far longer than
-  # Telegram will wait before retrying the delivery.
-  TelegramReactionWebhook:
+  # update off asynchronously: emoji reactions to the grader, channel posts
+  # that ask for a story to the scoop worker. Both take model calls, far
+  # longer than Telegram will wait before retrying the delivery.
+  TelegramWebhook:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: TelegramReaction/webhook.handler
+      Handler: TelegramWebhook/webhook.handler
       Runtime: python3.14
       MemorySize: 512
       Timeout: 10
       Environment:
         Variables:
           REACTION_FUNCTION_NAME: !Ref TelegramReactionGrade
+          SCOOP_FUNCTION_NAME: !Ref TelegramScoop
+          TELEGRAM_CHAT_ID: "@twothousanddotnews"
       Events:
-        TelegramReactionApiEvent:
+        TelegramWebhookApiEvent:
           Type: Api
           Properties:
-            Path: /telegram/reaction
+            Path: /telegram/webhook
             Method: post
       Policies:
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramReactionGrade
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TelegramScoop
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 
@@ -382,6 +387,38 @@ Resources:
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 
+  # Turns a link or /scoop command posted in the channel into headlines and
+  # replies with the best one. Fetches the story, then runs the Subvert
+  # prompts and a small tournament as synchronous model calls; the timeout
+  # covers a high-effort Opus final on top of that.
+  TelegramScoop:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TelegramScoop/scoop.handler
+      Runtime: python3.14
+      MemorySize: 1024
+      Timeout: 600
+      Environment:
+        Variables:
+          TELEGRAM_CHAT_ID: "@twothousanddotnews"
+          SCOOP_MAX_SEARCH_STORIES: "3"
+          SCOOP_EXTRACT_MODEL: claude-sonnet-5
+          BRAINSTORM_MODEL: claude-opus-4-8
+          GENERATE_MODEL: claude-haiku-4-5-20251001
+          TOURNAMENT_MODEL_FINAL: claude-opus-4-8
+          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
+          TOURNAMENT_ELIMINATION_EFFORT: "low"
+          TOURNAMENT_FINAL_EFFORT: "high"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Stories
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubvertedHeadlines
+        - DynamoDBReadPolicy:
+            TableName: !Ref Words
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
+
 Outputs:
   GetStoriesForTodayApi:
     Description: "Custom API Gateway endpoint for prod GetStoriesForToday"
@@ -392,6 +429,6 @@ Outputs:
   GetHeadlineApi:
     Description: "Custom API Gateway endpoint for prod GetHeadline"
     Value: "https://api.2000.news/{day}/{headline_slug}/"
-  TelegramReactionWebhookApi:
+  TelegramWebhookApi:
     Description: "Webhook URL to register with Telegram (news telegram-webhook --register)"
-    Value: "https://api.2000.news/telegram/reaction"
+    Value: "https://api.2000.news/telegram/webhook"
