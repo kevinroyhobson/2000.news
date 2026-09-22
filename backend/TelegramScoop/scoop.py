@@ -25,7 +25,7 @@ from lib.stories_repository import ON_DEMAND_FETCH_PREFIX, StoriesRepository
 from lib.telegram import TelegramError, send_message
 from lib.topic_search import save_stories_for_query
 from Subvert.on_demand import subvert_synchronously
-from Subvert.subvert import pipeline_story
+from Subvert.subvert import do_headlines_exist_for_story, pipeline_story
 from TelegramScoop import commands
 from TelegramScoop.article import ArticleError, fetch_story
 from TelegramScoop.mini_tournament import rank
@@ -74,19 +74,35 @@ def _fulfil(request: commands.Request) -> str:
 def _save_stories(request: commands.Request) -> list:
     today = datetime.datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
     if request.kind == "url":
-        story = _repo.save_story(fetch_story(request.text), f"{ON_DEMAND_FETCH_PREFIX}url",
-                                 year_month_day=today)
+        story = _save_or_resume(fetch_story(request.text), f"{ON_DEMAND_FETCH_PREFIX}url", today)
         if not story:
             raise ScoopError("that story is already in the paper")
         return [story]
 
     stories = save_stories_for_query(
-        request.text, _repo, NewsdataClient(), f"{ON_DEMAND_FETCH_PREFIX}scoop:{request.text}",
-        max_stories=MAX_SEARCH_STORIES, year_month_day=today,
+        request.text, NewsdataClient(),
+        lambda story: _save_or_resume(story, f"{ON_DEMAND_FETCH_PREFIX}scoop:{request.text}", today),
+        max_stories=MAX_SEARCH_STORIES,
     )
     if not stories:
         raise ScoopError(f"nothing new out there for “{request.text}”")
     return stories
+
+
+def _save_or_resume(story: dict, fetch_category: str, today: str):
+    """Save the story, or pick it back up if an earlier attempt at this request
+    saved it and then died before writing its headlines. The stream trigger
+    skips on-demand stories, so nothing else would ever come back for it."""
+    saved = _repo.save_story(story, fetch_category, year_month_day=today)
+    if saved:
+        return saved
+    existing = _repo.get_story(today, story["title"])
+    if (existing
+            and existing.get("FetchCategory", "").startswith(ON_DEMAND_FETCH_PREFIX)
+            and not do_headlines_exist_for_story(today, existing["StoryId"])):
+        print(f"Resuming '{existing['Title']}': saved on demand but never subverted.")
+        return existing
+    return None
 
 
 def _report(request: commands.Request, stories: list, headlines: list, best: dict) -> str:

@@ -26,8 +26,9 @@ def main(query, max, no_priority):
     print(f"Priority sources only: {not no_priority}")
     print()
 
+    repo = StoriesRepository()
     saved = save_stories_for_query(
-        query, StoriesRepository(), NewsdataClient(), f'manual:{query}',
+        query, NewsdataClient(), lambda story: repo.save_story(story, f'manual:{query}'),
         max_stories=max, use_priority=not no_priority,
     )
 

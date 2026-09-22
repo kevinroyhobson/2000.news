@@ -67,3 +67,7 @@ class StoriesRepository:
                 raise ex
 
         return None
+
+    def get_story(self, year_month_day, title):
+        response = self._table.get_item(Key={'YearMonthDay': year_month_day, 'Title': title})
+        return response.get('Item')
