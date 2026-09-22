@@ -404,7 +404,7 @@ Resources:
           SCOOP_MAX_SEARCH_STORIES: "3"
           SCOOP_EXTRACT_MODEL: claude-sonnet-5
           BRAINSTORM_MODEL: claude-opus-5-5
-          GENERATE_MODEL: claude-haiku-4-5-20251001
+          GENERATE_MODEL: claude-sonnet-5
           TOURNAMENT_MODEL_FINAL: claude-opus-5-5
           TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
           TOURNAMENT_ELIMINATION_EFFORT: "low"
