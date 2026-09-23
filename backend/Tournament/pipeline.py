@@ -145,7 +145,7 @@ JUDGING CRITERIA:
    - Dark humor over light — headlines that highlight the absurd nature of the world score higher
    - Satire that cuts: the best headlines make you laugh AND think about something real
    - SimCity 2000 energy: slightly unhinged civic announcements, zany but sharp
-   - Deadpan institutional framing applied to absurd subjects — safety regulators recalling a malfunctioning star player, missing-persons alerts for benched veterans, international courts ruling on overtime, scientific announcements about coaches' tantrums. The mismatch between bureaucratic voice and ridiculous content is the SimCity 2000 sweet spot.
+   - Deadpan institutional framing applied to absurd subjects — missing-persons alerts for benched veterans, international courts ruling on overtime, scientific announcements about coaches' tantrums. The mismatch between bureaucratic voice and ridiculous content is the SimCity 2000 sweet spot.
    - Deadpan profanity is house style, not a defect: one casually placed swear inside otherwise immaculate newspaper copy scores as craft when the structure stays straight and the profanity lands as weary institutional honesty (e.g., "Scientists Confirm Ocean Somehow More Fucked Than Previously Thought"). Rank down only when the swearing IS the whole joke or the headline mugs at its own vulgarity.
    - The "forwarding test": would someone text this to a friend without having to caption it "for context, X happened today"? That's the bar.
 
@@ -189,6 +189,7 @@ EXAMPLES OF MEDIOCRE HEADLINES (things that should rank lower):
 - Obvious first-draft jokes that anyone would think of within 5 seconds of reading the original
 - Headlines that are mean-spirited or punch down rather than satirically pointing at absurdity
 - Headlines that just add "Area Man" or "Report Finds" without earning the Onion-style framing
+- Fill-in-the-blank format-borrowing — recall notices, FDA warnings, "Consult Your Doctor If Symptoms Persist" boilerplate wrapped around the topic with no pivot. If you could swap in any other subject and the joke reads the same, it's a template, not a joke.
 
 RESPONSE FORMAT:
 Reply with ALL letters in order from best to worst, separated by commas (e.g., "D, A, F, B, C, E").
