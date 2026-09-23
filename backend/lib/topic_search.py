@@ -3,7 +3,20 @@
 Shared by the fetch_topic CLI and the Telegram /scoop command.
 """
 
+import re
+
 MAX_API_CALLS = 3
+_QUERY_SYNTAX = re.compile(r'"|\b(AND|OR|NOT)\b')
+
+
+def require_every_word(query):
+    """Join a plain topic with AND: newsdata matches unquoted words
+    independently, anywhere in an article, so "cincinnati reds" alone pulls
+    in any long story that mentions the city. A query that brings its own
+    quotes or operators is sent as written."""
+    if _QUERY_SYNTAX.search(query):
+        return query
+    return ' AND '.join(query.split())
 
 
 def save_stories_for_query(query, client, save, max_stories=3, use_priority=True):
