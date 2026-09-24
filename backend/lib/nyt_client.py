@@ -3,8 +3,9 @@
 Article pages serve a paywall stub to anything that isn't a browser with a
 subscription; the API hands over the headline, abstract, lead paragraph and
 photo for any URL. Needs an API key from developer.nytimes.com stored at
-/2000news/NYT_API_KEY. Returns stories in the newsdata.io dict shape that
-StoriesRepository saves.
+/2000news/NYT_API_KEY. The search index runs hours behind publication, so
+articles it can't find yet are looked for in the RSS feeds. Returns stories
+in the newsdata.io dict shape that StoriesRepository saves.
 """
 
 from urllib.parse import urlparse, urlunparse
@@ -12,6 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import requests
 from botocore.exceptions import ClientError
 
+from .rss_client import RssClient
 from .ssm_secrets import get_secret
 
 ENDPOINT = 'https://api.nytimes.com/svc/search/v2/articlesearch.json'
@@ -24,19 +26,29 @@ def is_nyt_url(url):
 
 
 def fetch_story(url):
-    """The article behind a nytimes.com URL, or None without a key or a match."""
+    """The article behind a nytimes.com URL, or None if neither the search
+    nor the feeds have it."""
+    canonical = _without_query(url)
+    return _search(canonical) or RssClient().find_nyt_story(canonical)
+
+
+def _search(url):
     api_key = _api_key()
     if not api_key:
         print("No NYT API key configured; skipping the Article Search lookup.")
         return None
 
-    canonical = _without_query(url)
-    print(f"Looking up {canonical} via the NYT Article Search API")
-    response = requests.get(ENDPOINT, params={'fq': f'web_url:("{canonical}")', 'api-key': api_key},
-                            timeout=15)
-    response.raise_for_status()
+    print(f"Looking up {url} via the NYT Article Search API")
+    try:
+        response = requests.get(ENDPOINT, params={'fq': f'web_url:("{url}")', 'api-key': api_key},
+                                timeout=15)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"NYT Article Search failed: {e}")
+        return None
     docs = (response.json().get('response') or {}).get('docs') or []
     if not docs:
+        print("NYT Article Search has no match (yet)")
         return None
     return _to_story(docs[0])
 

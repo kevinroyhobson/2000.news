@@ -9,8 +9,9 @@ Returns stories in the same dict shape used by NewsdataClient / StoriesRepositor
 import email.utils
 import json
 import re
-import urllib.request
 import urllib.error
+import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 
 
@@ -18,6 +19,22 @@ MEDIA_NS = '{http://search.yahoo.com/mrss/}'
 DC_NS = '{http://purl.org/dc/elements/1.1/}'
 
 NYT_FEED_URL = 'https://rss.nytimes.com/services/xml/rss/nyt/{name}.xml'
+NYT_FRONT_FEEDS = ['HomePage', 'MostViewed']
+NYT_SECTION_FEEDS = {
+    'arts': 'Arts',
+    'business': 'Business',
+    'climate': 'Climate',
+    'health': 'Health',
+    'nyregion': 'NYRegion',
+    'opinion': 'Opinion',
+    'politics': 'Politics',
+    'science': 'Science',
+    'sports': 'Sports',
+    'technology': 'Technology',
+    'upshot': 'Upshot',
+    'us': 'US',
+    'world': 'World',
+}
 ESPN_FEED_URL = 'https://www.espn.com/espn/rss/{name}'
 BENGALS_FEED_URL = 'https://www.bengals.com/rss/news'
 
@@ -48,6 +65,17 @@ class RssClient:
         return self._fetch_feed(url, source_id='nytimes.com',
                                 og_image_fallback=True,
                                 url_filter=None)
+
+    def find_nyt_story(self, url):
+        """The story at an nytimes.com URL, from whichever feed carries it, or
+        None. Covers articles too new for the Article Search index."""
+        link = _without_query(url)
+        for feed_name in _nyt_feeds_for(link):
+            item = _find_item(NYT_FEED_URL.format(name=feed_name), link)
+            if item is not None:
+                print(f"Found {link} in the NYT {feed_name} feed")
+                return self._item_to_story(item, 'nytimes.com', og_image_fallback=False)
+        return None
 
     def fetch_espn(self, feed_name):
         """Fetch an ESPN feed. feed_name is the path segment, e.g. 'news',
@@ -150,6 +178,30 @@ class RssClient:
             'category': categories or None,
             'source_id': source_id,
         }
+
+
+def _nyt_feeds_for(link):
+    """Section feeds named in the URL's path, most specific first, then the
+    front-page feeds. /2026/09/24/us/politics/x.html -> Politics, US, ..."""
+    sections = urllib.parse.urlsplit(link).path.strip('/').split('/')[:-1]
+    feeds = [NYT_SECTION_FEEDS[s] for s in reversed(sections) if s in NYT_SECTION_FEEDS]
+    return feeds + NYT_FRONT_FEEDS
+
+
+def _find_item(feed_url, link):
+    try:
+        root = ET.fromstring(_http_get(feed_url))
+    except (urllib.error.URLError, TimeoutError, ET.ParseError) as e:
+        print(f"  Couldn't read {feed_url}: {e}")
+        return None
+    for item in root.findall('.//item'):
+        if _without_query((item.findtext('link') or '').strip()) == link:
+            return item
+    return None
+
+
+def _without_query(url):
+    return urllib.parse.urlsplit(url)._replace(query='', fragment='').geturl()
 
 
 def _item_keywords(item, lower=True):

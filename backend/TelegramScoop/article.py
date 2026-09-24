@@ -1,11 +1,11 @@
 """Turn a URL into a story the pipeline can subvert.
 
-nytimes.com links go through the Article Search API (lib/nyt_client), since
-the pages themselves serve a paywall stub. Everything else is fetched and
-read: the image, title and dates come from the page's meta tags, and a model
-picks the article's opening paragraphs out of the visible text, which is the
-part nav menus, cookie banners and related-story links make unreliable to
-regex.
+nytimes.com links go through the Article Search API and the RSS feeds
+(lib/nyt_client), since the pages themselves serve a paywall stub. Everything
+else is fetched and read: the image, title and dates come from the page's meta
+tags, and a model picks the article's opening paragraphs out of the visible
+text, which is the part nav menus, cookie banners and related-story links make
+unreliable to regex.
 """
 
 import datetime
@@ -14,8 +14,6 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
-
-import requests
 
 from lib import nyt_client
 from lib.anthropic_batches import extract_text
@@ -42,18 +40,11 @@ class ArticleError(Exception):
 def fetch_story(url: str) -> dict:
     """A story dict in the newsdata.io shape StoriesRepository saves."""
     if nyt_client.is_nyt_url(url):
-        story = _nyt_story(url)
+        story = nyt_client.fetch_story(url)
         if story:
             return story
+        print("No NYT source had it; reading the page instead.")
     return _story_from_page(url, _download(url))
-
-
-def _nyt_story(url: str):
-    try:
-        return nyt_client.fetch_story(url)
-    except requests.RequestException as e:
-        print(f"NYT lookup failed ({e}); reading the page instead.")
-        return None
 
 
 def _download(url: str) -> str:

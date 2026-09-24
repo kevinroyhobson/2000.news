@@ -42,8 +42,11 @@ reply saying so instead of a story.
 
 nytimes.com links go through the Article Search API instead, since the pages
 serve a paywall stub. That needs a key from developer.nytimes.com at
-`/2000news/NYT_API_KEY` in SSM; without one, NYT links get the page treatment
-like everything else.
+`/2000news/NYT_API_KEY` in SSM. The search index runs hours behind
+publication, so a link it can't find yet is looked for in the section feed
+named in its URL and the HomePage and MostViewed feeds. Only when none of
+those have it does it get the page treatment like everything else, which NYT
+answers with a 403.
 
 ## Searches
 
