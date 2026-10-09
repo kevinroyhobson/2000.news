@@ -12,7 +12,7 @@ updated state, which the state machine passes through whole:
 
     {
       "stories": [{year_month_day, story_id, title, description,
-                   entity_hints, random_words}],
+                   entity_hints, editor_note, random_words}],
       "angles":  [[{angle_name, setup, keywords, brainstorm_model,
                     generate_model}, ...] per story],
       "batch":   {batch_id, status, polls, timed_out}
@@ -246,9 +246,12 @@ def build_brainstorm_request(story: dict, index: int) -> dict:
     entity_line = ""
     if story.get("entity_hints"):
         entity_line = f"\nReal people, orgs, and topics from the story: {', '.join(story['entity_hints'])}"
+    editor_line = ""
+    if story.get("editor_note"):
+        editor_line = f"\nWhy the editor assigned it: {story['editor_note']}"
 
     prompt = f"""HEADLINE: "{story['title']}"
-CONTEXT: "{story['description']}"{entity_line}
+CONTEXT: "{story['description']}"{entity_line}{editor_line}
 
 Random words for absurdist friction: {', '.join(story['random_words'])}
 Aim to work 2–3 of these in across your angles. Awkward or forced fits are often funnier than natural ones — the juxtaposition is part of the joke. Don't let them swamp the real story.{get_few_shot_examples()}"""

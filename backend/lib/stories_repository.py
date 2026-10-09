@@ -17,7 +17,7 @@ class StoriesRepository:
         self._dynamo = boto3.resource('dynamodb')
         self._table = self._dynamo.Table(table_name)
 
-    def save_story(self, story, fetch_category, year_month_day=None):
+    def save_story(self, story, fetch_category, year_month_day=None, extra_attributes=None):
         """
         Save a story to DynamoDB if it has required fields and doesn't already exist. Tightly
         coupled to newsdata.io for now for simplicity.
@@ -26,6 +26,7 @@ class StoriesRepository:
             story: Dict with newsdata.io story fields (title, pubDate, image_url, etc.)
             fetch_category: String identifying how this story was fetched (e.g., 'entertainment', 'manual:barack obama')
             year_month_day: Day partition to file the story under; defaults to its publish date
+            extra_attributes: Additional attributes to write on the item (e.g., EditorNote)
 
         Returns:
             The saved item, or None if skipped (no image or already exists)
@@ -35,7 +36,7 @@ class StoriesRepository:
             return None
 
         item = {
-            'YearMonthDay': year_month_day or datetime.datetime.fromisoformat(story['pubDate']).strftime('%Y%m%d'),
+            'YearMonthDay': year_month_day or _publish_day(story),
             'PublishedAt': story['pubDate'],
             'Title': story['title'],
             'Description': story['description'],
@@ -51,7 +52,8 @@ class StoriesRepository:
             'FetchCategory': fetch_category,
             'Source': story.get('source_id'),
             'RetrievedTime': datetime.datetime.now().isoformat(),
-            'StoryId': ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
+            'StoryId': ''.join(random.choices(string.ascii_lowercase + string.digits, k=5)),
+            **(extra_attributes or {}),
         }
         try:
             self._table.put_item(
@@ -68,6 +70,16 @@ class StoriesRepository:
 
         return None
 
+    def is_new(self, story):
+        """Whether save_story would write this story: it has an image and
+        isn't already filed under its publish day."""
+        return (story.get('image_url') is not None
+                and self.get_story(_publish_day(story), story['title']) is None)
+
     def get_story(self, year_month_day, title):
         response = self._table.get_item(Key={'YearMonthDay': year_month_day, 'Title': title})
         return response.get('Item')
+
+
+def _publish_day(story):
+    return datetime.datetime.fromisoformat(story['pubDate']).strftime('%Y%m%d')

@@ -1,30 +1,33 @@
 """
 Scheduled Lambda that fetches news stories from a mix of sources.
 
-Runs 4x/day. Each run fetches 23 stories total, distributed across 11 sources:
-  - 1 advice  (newsdata.io targeted query for syndicated advice columns)
-  - 2 newsdata entertainment
-  - 2 newsdata wildcard
-  - 3 ESPN top stories
-  - 1 bengals.com Geoff Hobson story
-  - 3 NYT MostViewed
-  - 3 NYT HomePage
-  - 2 NYT Technology
-  - 2 NYT Business
-  - 2 NYT Politics
-  - 2 NYT World
+Runs 4x/day. Each run saves 23 stories:
+  - 2 pinned, saved straight from their source every run:
+      1 advice (newsdata.io targeted query for syndicated advice columns)
+      1 bengals.com Geoff Hobson story
+  - 21 chosen by the assignment editor (Fetch/editor.py) from a pool of
+    ~70 candidates across newsdata entertainment + wildcard, ESPN top
+    stories, and NYT MostViewed / HomePage / Technology / Business /
+    Politics / World.
+
+If the editor call fails, the run falls back to fixed per-source quotas
+(each plan's n), taking each source's candidates in feed order.
 
 Dedup across sources is handled at the DynamoDB layer: the Stories table uses
 (YearMonthDay, Title) as its composite key and save_story does a conditional
 write, so the same headline appearing in multiple NYT feeds only lands once.
+Candidates already in the table are dropped before the editor sees them.
 """
 
+from Fetch.editor import Candidate, pick_stories
 from lib.newsdata_client import NewsdataClient
 from lib.rss_client import RssClient
 from lib.stories_repository import StoriesRepository
 
 
 ADVICE_QUERY = '"Dear Abby" OR "Miss Manners" OR "Asking Eric" OR "Dear Annie" OR "Ask Amy"'
+
+EDITOR_PICK_COUNT = 21
 
 # Cap on newsdata API calls per source. Unused for RSS (feeds are one-shot).
 MAX_API_CALLS_PER_SOURCE = 3
@@ -35,18 +38,23 @@ MAX_API_CALLS_PER_SOURCE = 3
 #   'nyt'               -> rss.nytimes.com/services/xml/rss/nyt/<feed>.xml
 #   'espn'              -> www.espn.com/espn/rss/<feed>
 #   'bengals_hobson'    -> www.bengals.com/rss/news, Geoff Hobson stories only
-FETCH_PLAN = [
-    {'label': 'advice',                 'n': 1, 'type': 'newsdata_query',    'query': ADVICE_QUERY},
-    {'label': 'newsdata_entertainment', 'n': 2, 'type': 'newsdata_category', 'category': 'entertainment'},
-    {'label': 'newsdata_wildcard',      'n': 2, 'type': 'newsdata_category', 'category': None},
-    {'label': 'espn_top',               'n': 3, 'type': 'espn',              'feed': 'news'},
-    {'label': 'bengals_hobson',         'n': 1, 'type': 'bengals_hobson'},
-    {'label': 'nyt_most_viewed',        'n': 3, 'type': 'nyt',               'feed': 'MostViewed'},
-    {'label': 'nyt_homepage',           'n': 3, 'type': 'nyt',               'feed': 'HomePage'},
-    {'label': 'nyt_technology',         'n': 2, 'type': 'nyt',               'feed': 'Technology'},
-    {'label': 'nyt_business',           'n': 2, 'type': 'nyt',               'feed': 'Business'},
-    {'label': 'nyt_politics',           'n': 2, 'type': 'nyt',               'feed': 'Politics'},
-    {'label': 'nyt_world',              'n': 2, 'type': 'nyt',               'feed': 'World'},
+#
+# Pinned sources save n stories directly. Every other source offers up to
+# pool candidates to the editor, and n is its quota if the editor fails.
+PINNED_PLAN = [
+    {'label': 'advice',         'n': 1, 'type': 'newsdata_query', 'query': ADVICE_QUERY},
+    {'label': 'bengals_hobson', 'n': 1, 'type': 'bengals_hobson'},
+]
+EDITOR_PLAN = [
+    {'label': 'newsdata_entertainment', 'n': 2, 'pool': 8,  'type': 'newsdata_category', 'category': 'entertainment'},
+    {'label': 'newsdata_wildcard',      'n': 2, 'pool': 10, 'type': 'newsdata_category', 'category': None},
+    {'label': 'espn_top',               'n': 3, 'pool': 8,  'type': 'espn',              'feed': 'news'},
+    {'label': 'nyt_most_viewed',        'n': 3, 'pool': 10, 'type': 'nyt',               'feed': 'MostViewed'},
+    {'label': 'nyt_homepage',           'n': 3, 'pool': 12, 'type': 'nyt',               'feed': 'HomePage'},
+    {'label': 'nyt_technology',         'n': 2, 'pool': 6,  'type': 'nyt',               'feed': 'Technology'},
+    {'label': 'nyt_business',           'n': 2, 'pool': 6,  'type': 'nyt',               'feed': 'Business'},
+    {'label': 'nyt_politics',           'n': 2, 'pool': 6,  'type': 'nyt',               'feed': 'Politics'},
+    {'label': 'nyt_world',              'n': 2, 'pool': 6,  'type': 'nyt',               'feed': 'World'},
 ]
 
 
@@ -56,95 +64,124 @@ _repo = StoriesRepository()
 
 
 def fetch(event, context):
-    """Lambda handler: fetch stories from all configured sources."""
-    results = {}
-    total_saved = 0
+    """Lambda handler: save the pinned stories, then the editor's picks."""
+    results = {plan['label']: _save_pinned(plan) for plan in PINNED_PLAN}
 
-    for plan in FETCH_PLAN:
-        label = plan['label']
-        try:
-            saved = _fetch_one(plan)
-        except Exception as e:
-            print(f"Error fetching {label}: {type(e).__name__}: {e}")
-            saved = 0
-        results[label] = saved
-        total_saved += saved
+    candidates = gather_candidates(EDITOR_PLAN)
+    for candidate in choose(candidates):
+        extra_attributes = {'EditorNote': candidate.note} if candidate.note else None
+        if _repo.save_story(candidate.story, candidate.label, extra_attributes=extra_attributes):
+            results[candidate.label] = results.get(candidate.label, 0) + 1
 
-    msg = f"Saved {total_saved} stories across {len(results)} sources: {results}"
+    msg = f"Saved {sum(results.values())} stories: {results}"
     print(msg)
     return msg
 
 
-def _fetch_one(plan):
-    label = plan['label']
-    n = plan['n']
-    t = plan['type']
+def choose(candidates):
+    """The editor's picks, or each source's first n if the editor fails."""
+    if not candidates:
+        return []
+    try:
+        picks = pick_stories(candidates, EDITOR_PICK_COUNT)
+    except Exception as e:
+        print(f"Editor failed ({type(e).__name__}: {e}); falling back to per-source quotas.")
+        picks = []
 
-    print(f"--- Fetching [{label}] (type={t}, target={n}) ---")
+    if not picks:
+        return quota_picks(candidates, EDITOR_PLAN)
+
+    print(f"Editor picked {len(picks)} of {len(candidates)} candidates:")
+    for candidate in picks:
+        print(f"  [{candidate.label}] {candidate.story['title']} — {candidate.note}")
+    return picks
+
+
+def quota_picks(candidates, plans):
+    quotas = {plan['label']: plan['n'] for plan in plans}
+    picks = []
+    for candidate in candidates:
+        if quotas.get(candidate.label, 0) > 0:
+            quotas[candidate.label] -= 1
+            picks.append(candidate)
+    return picks
+
+
+def gather_candidates(plans):
+    """Up to each plan's pool of new, saveable stories, in source order.
+    A title offered by more than one source is kept once."""
+    candidates = []
+    seen_titles = set()
+    for plan in plans:
+        label = plan['label']
+        offered = 0
+        try:
+            for story in _stories_from(plan):
+                if offered >= plan['pool']:
+                    break
+                if story['title'] in seen_titles or not _repo.is_new(story):
+                    continue
+                seen_titles.add(story['title'])
+                candidates.append(Candidate(story=story, label=label))
+                offered += 1
+        except Exception as e:
+            print(f"Error gathering {label}: {type(e).__name__}: {e}")
+        print(f"[{label}] offered {offered}/{plan['pool']} candidates")
+    return candidates
+
+
+def _save_pinned(plan):
+    """Save stories from the source in order until n are saved."""
+    label = plan['label']
+    saved = 0
+    try:
+        for story in _stories_from(plan):
+            print(f"Processing [{label}] '{story['title']}' ({story.get('source_id', 'unknown')})")
+            if _repo.save_story(story, label):
+                saved += 1
+                if saved >= plan['n']:
+                    break
+    except Exception as e:
+        print(f"Error fetching {label}: {type(e).__name__}: {e}")
+    print(f"[{label}] saved {saved}/{plan['n']}")
+    return saved
+
+
+def _stories_from(plan):
+    t = plan['type']
 
     if t == 'newsdata_query':
         query = plan['query']
-        return _fetch_newsdata_paginated(
-            label, n,
+        return _newsdata_stories(
             lambda page_token: _newsdata.fetch_by_query(query, use_priority=False, page_token=page_token),
         )
 
     if t == 'newsdata_category':
         category = plan['category']  # None for wildcard
         use_priority = category is not None
-        return _fetch_newsdata_paginated(
-            label, n,
+        return _newsdata_stories(
             lambda page_token: _newsdata.fetch_by_category(category, use_priority, page_token=page_token),
         )
 
     if t == 'nyt':
-        return _fetch_rss(label, n, _rss.fetch_nyt(plan['feed']))
+        return _rss.fetch_nyt(plan['feed'])
 
     if t == 'espn':
-        return _fetch_rss(label, n, _rss.fetch_espn(plan['feed']))
+        return _rss.fetch_espn(plan['feed'])
 
     if t == 'bengals_hobson':
-        return _fetch_rss(label, n, _rss.fetch_bengals_hobson())
+        return _rss.fetch_bengals_hobson()
 
     raise ValueError(f"Unknown fetch type: {t}")
 
 
-def _fetch_newsdata_paginated(label, n, fetch_page):
-    """Call newsdata.io, paginating until we save n stories or hit the API-call cap."""
-    saved = 0
-    num_calls = 0
+def _newsdata_stories(fetch_page):
+    """Yield newsdata.io results page by page, up to the API-call cap. Lazy,
+    so a caller that stops early never pays for the next page."""
     page_token = None
-
-    while saved < n and num_calls < MAX_API_CALLS_PER_SOURCE:
+    for _ in range(MAX_API_CALLS_PER_SOURCE):
         response = fetch_page(page_token)
-        num_calls += 1
-
-        for story in response.get('results') or []:
-            source = story.get('source_id', 'unknown')
-            print(f"Processing [{label}] '{story['title']}' ({source})")
-            if _repo.save_story(story, label):
-                saved += 1
-                if saved >= n:
-                    break
-
+        yield from response.get('results') or []
         page_token = response.get('nextPage')
         if not page_token:
-            break
-
-    print(f"[{label}] saved {saved}/{n} ({num_calls} API calls)")
-    return saved
-
-
-def _fetch_rss(label, n, stories):
-    """Try to save stories from an RSS feed in order until n are saved."""
-    saved = 0
-    for story in stories:
-        source = story.get('source_id', 'unknown')
-        print(f"Processing [{label}] '{story['title']}' ({source})")
-        if _repo.save_story(story, label):
-            saved += 1
-            if saved >= n:
-                break
-
-    print(f"[{label}] saved {saved}/{n} from {len(stories)} feed items")
-    return saved
+            return

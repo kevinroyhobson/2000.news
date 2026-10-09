@@ -104,6 +104,13 @@ Resources:
       Handler: Fetch/fetch.fetch
       Runtime: python3.14
       MemorySize: 1024
+      # Covers gathering ~70 candidates plus the editor's model call and its
+      # one retry (each capped at 180s in Fetch/editor.py).
+      Timeout: 600
+      Environment:
+        Variables:
+          EDITOR_MODEL: claude-opus-5-5
+          EDITOR_EFFORT: "medium"
       Events:
         # 4x/day: 7am, 12pm, 4pm, 10pm America/New_York (DST-aware)
         FetchMorningV2:
