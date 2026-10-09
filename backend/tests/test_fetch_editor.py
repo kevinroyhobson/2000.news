@@ -159,12 +159,12 @@ def test_pinned_stories_are_marked_and_only_used_inside_mashups():
     assert _source_titles(picks) == [["A", "Dear Abby"], ["A"]]
 
 
-def test_a_story_goes_in_at_most_one_mashup():
+def test_a_story_can_appear_in_several_mashups_but_not_the_same_one_twice():
     picks = editor.parse_picks(
-        '[{"ids": [1, 2]}, {"ids": [1, 3]}, {"ids": [3, 4]}]', _candidates("A", "B", "C", "D"), 21, 5,
+        '[{"ids": [1, 2]}, {"ids": [1, 3]}, {"ids": [2, 1]}]', _candidates("A", "B", "C"), 21, 5,
     )
 
-    assert _source_titles(picks) == [["A", "B"], ["C", "D"]]
+    assert _source_titles(picks) == [["A", "B"], ["A", "C"]]
 
 
 def test_picks_skip_mashups_past_the_cap():

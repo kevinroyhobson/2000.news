@@ -37,7 +37,7 @@ WHAT TO PASS ON:
 - A second story about an event you already picked. Different outlets covering the same news count as one story; keep the version with the richest details.
 
 MASHUPS:
-A few picks can combine 2 or 3 stories into one assignment, when they collide into a joke none of them makes alone: a billionaire christening his third yacht the same week his company's warehouse workers unionize, say. The collision is the point; stories that merely share a topic aren't a mashup. Zero mashups is a fine answer, and the assignment says how many you may use at most. A story can run alone and in one mashup if both earn their slot, but never in two mashups. Candidates marked as already running are the paper's regular features and run on their own no matter what; use them only inside mashups.
+A few picks can combine 2 or 3 stories into one assignment, when they collide into a joke none of them makes alone: a billionaire christening his third yacht the same week his company's warehouse workers unionize, say. The collision is the point; stories that merely share a topic aren't a mashup. Zero mashups is a fine answer, and the assignment says how many you may use at most. A story can run alone and in any number of mashups, as long as each one earns its slot. Candidates marked as already running are the paper's regular features and run on their own no matter what; use them only inside mashups.
 
 BUILD A FRONT PAGE, NOT A RANKING:
 Your picks run together, so think about the mix. Swing between the world-historic and the stupid; a war next to a raccoon stuck in a vending machine is funnier than either alone. Spread across topics (politics, business, tech, world, sports, culture, the weird), and don't let one source dominate.
@@ -91,28 +91,25 @@ def build_prompt(candidates: list, count: int, max_mashups: int) -> str:
 
 def parse_picks(response_text: str, candidates: list, count: int, max_mashups: int) -> list:
     """Map the editor's ids back to candidates. Skips picks that name a
-    nonexistent candidate, run a story alone twice, run a pinned story alone,
-    put a story in a second mashup, or go past the mashup cap."""
+    nonexistent candidate, repeat an earlier pick, run a pinned story alone,
+    or go past the mashup cap."""
     picks = []
-    solo_ids = set()
-    mashup_ids = set()
+    picked_id_sets = set()
     mashups = 0
     for choice in parse_json_response(response_text):
         if len(picks) >= count:
             break
         ids = _candidate_ids(choice, len(candidates))
-        if not ids:
+        if not ids or frozenset(ids) in picked_id_sets:
             continue
         sources = tuple(candidates[i - 1] for i in ids)
-        if len(sources) == 1:
-            if sources[0].pinned or ids[0] in solo_ids:
-                continue
-            solo_ids.add(ids[0])
-        else:
-            if mashups >= max_mashups or not mashup_ids.isdisjoint(ids):
+        if len(sources) == 1 and sources[0].pinned:
+            continue
+        if len(sources) > 1:
+            if mashups >= max_mashups:
                 continue
             mashups += 1
-            mashup_ids.update(ids)
+        picked_id_sets.add(frozenset(ids))
         picks.append(Pick(sources=sources, note=str(choice.get("why") or "").strip()))
     return picks
 
