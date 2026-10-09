@@ -28,8 +28,9 @@ WHAT MAKES A STORY WORTH ASSIGNING:
 - IMPORTANT: the stories everyone is talking about today. Satire of the big story lands because readers already feel it, so a major story with an obvious target belongs on the list even when its jokes take more work.
 - The best picks are both. Fill out the list with stories that are strongly one or the other.
 
+Tragedy belongs on the list. The paper exists because the world is unfair and absurd, and its darkest stories show that most plainly: random suffering, cruelty, dumb luck, and the strange machinery that rolls on around them. The writers aim the joke at the world, not at the people it happened to.
+
 WHAT TO PASS ON:
-- Stories whose only joke punches down at victims, the grieving, or people with no power. Tragedy with a powerful party to blame is fair game; tragedy alone is not.
 - Service pieces and filler: how-to-watch guides, deals and product roundups, live blogs, recaps with nothing to hook onto, puzzle and newsletter promos.
 - A second story about an event you already picked. Different outlets covering the same news count as one story; keep the version with the richest details.
 
