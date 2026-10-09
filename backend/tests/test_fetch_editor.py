@@ -4,6 +4,8 @@ import sys
 import types
 from unittest import mock
 
+import pytest
+
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -157,6 +159,14 @@ def test_pinned_stories_are_marked_and_only_used_inside_mashups():
     assert _source_titles(picks) == [["A", "Dear Abby"], ["A"]]
 
 
+def test_a_story_goes_in_at_most_one_mashup():
+    picks = editor.parse_picks(
+        '[{"ids": [1, 2]}, {"ids": [1, 3]}, {"ids": [3, 4]}]', _candidates("A", "B", "C", "D"), 21, 5,
+    )
+
+    assert _source_titles(picks) == [["A", "B"], ["C", "D"]]
+
+
 def test_picks_skip_mashups_past_the_cap():
     picks = editor.parse_picks(
         '[{"ids": [1, 2]}, {"ids": [3, 4]}, {"ids": [5]}]', _candidates("A", "B", "C", "D", "E"), 21, 1,
@@ -303,11 +313,11 @@ def test_fetch_files_a_mashup_as_one_story_that_fills_one_slot():
 
     assert repo.mashups == [(["Yacht", "Union"], "the collision")]
     assert repo.events == [
-        ("saved mashup", "Yacht / Union"),
         ("saved", "Yacht"),
-        ("saved", "Spare"),
+        ("saved mashup", "Yacht / Union"),
         ("marked", "Yacht"),
         ("marked", "Union"),
+        ("saved", "Spare"),
     ]
     assert "'mashup': 1" in result
 
@@ -336,6 +346,29 @@ def test_pinned_stories_reach_the_editor_but_never_the_backfill_or_the_markers()
     assert repo.events == [
         ("saved", "Dear Abby"),
         ("saved mashup", "Coup / Dear Abby"),
-        ("saved", "Spare"),
         ("marked", "Coup"),
+        ("saved", "Spare"),
     ]
+
+
+def test_a_saved_mashup_is_marked_even_when_a_later_save_fails():
+    class FailingRepo(_FakeRepo):
+        def save_story(self, story, fetch_category, extra_attributes=None):
+            raise RuntimeError("throttled")
+
+    repo = FailingRepo()
+    plans = [{"label": "nyt_homepage", "n": 1, "pool": 5}]
+    feeds = {"nyt_homepage": [_story("Yacht"), _story("Union"), _story("Spare")]}
+
+    def editor_picks(candidates, count, max_mashups):
+        return [editor.Pick(sources=(candidates[0], candidates[1]))]
+
+    with mock.patch.object(fetch, "_repo", repo), \
+            mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
+            mock.patch.object(fetch, "pick_stories", editor_picks), \
+            mock.patch.object(fetch, "PINNED_PLAN", []), \
+            mock.patch.object(fetch, "EDITOR_PLAN", plans):
+        with pytest.raises(RuntimeError):
+            fetch.fetch({}, None)
+
+    assert repo.events == [("saved mashup", "Yacht / Union"), ("marked", "Yacht"), ("marked", "Union")]
