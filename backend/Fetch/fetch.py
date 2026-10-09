@@ -83,16 +83,15 @@ def fetch(event, context):
 
 
 def save_order(candidates):
-    """Every candidate, in the order to try saving them: the editor's picks,
-    then each source's first n, then the rest. Fetch stops once the paper is
-    full, so the backfill only fills slots the editor left empty or a save
-    turned down, and covers the whole run when the editor fails."""
+    """Every candidate, in the order fetch tries to save them: the editor's
+    picks, then each source's first n, then the rest. Fetch stops once the
+    paper is full, so the backfill only reaches slots the editor left empty
+    or a save turned down."""
     picks = _editor_picks(candidates)
     picked_titles = {c.story['title'] for c in picks}
     unpicked = [c for c in candidates if c.story['title'] not in picked_titles]
-    quota = quota_picks(unpicked, EDITOR_PLAN)
-    quota_titles = {c.story['title'] for c in quota}
-    return picks + quota + [c for c in unpicked if c.story['title'] not in quota_titles]
+    within_quota, beyond_quota = _split_by_quota(unpicked, EDITOR_PLAN)
+    return picks + within_quota + beyond_quota
 
 
 def _editor_picks(candidates):
@@ -110,14 +109,17 @@ def _editor_picks(candidates):
     return picks
 
 
-def quota_picks(candidates, plans):
+def _split_by_quota(candidates, plans):
+    """Each source's first n candidates, and everything after them."""
     quotas = {plan['label']: plan['n'] for plan in plans}
-    picks = []
+    within_quota, beyond_quota = [], []
     for candidate in candidates:
         if quotas.get(candidate.label, 0) > 0:
             quotas[candidate.label] -= 1
-            picks.append(candidate)
-    return picks
+            within_quota.append(candidate)
+        else:
+            beyond_quota.append(candidate)
+    return within_quota, beyond_quota
 
 
 def gather_candidates(plans):

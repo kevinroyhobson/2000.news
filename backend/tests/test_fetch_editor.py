@@ -1,3 +1,4 @@
+import dataclasses
 import importlib.util
 import pathlib
 import sys
@@ -27,10 +28,7 @@ editor = _load("Fetch/editor.py", "fetch_editor_module", {
     "anthropic": _stub_module("anthropic"),
     "lib.ssm_secrets": _stub_module("lib.ssm_secrets", get_secret=lambda name: "secret"),
     "lib.anthropic_batches": _stub_module("lib.anthropic_batches", extract_text=lambda message: message),
-    "lib.llm_json": _stub_module(
-        "lib.llm_json",
-        parse_json_response=_load("lib/llm_json.py", "llm_json_module", {}).parse_json_response,
-    ),
+    "lib.llm_json": _load("lib/llm_json.py", "llm_json_module", {}),
 })
 
 
@@ -63,6 +61,10 @@ def _candidates(*titles, label="nyt_homepage"):
     return [editor.Candidate(story=_story(t), label=label) for t in titles]
 
 
+def _titles(candidates):
+    return [c.story["title"] for c in candidates]
+
+
 def test_prompt_numbers_candidates_from_one_and_flattens_descriptions():
     candidates = [
         editor.Candidate(story=_story("Mayor Declares War on Geese", "The mayor\n\nsaid  so."), label="nyt_homepage"),
@@ -90,7 +92,7 @@ def test_picks_map_ids_to_candidates_in_the_editors_order_with_notes():
 
     picks = editor.parse_picks('[{"id": 3, "why": "absurd"}, {"id": 1, "why": " ironic "}]', candidates, 5)
 
-    assert [p.story["title"] for p in picks] == ["C", "A"]
+    assert _titles(picks) == ["C", "A"]
     assert [p.note for p in picks] == ["absurd", "ironic"]
 
 
@@ -108,7 +110,7 @@ def test_picks_skip_unknown_repeated_and_malformed_ids():
 def test_picks_stop_at_count():
     picks = editor.parse_picks('[{"id": 1}, {"id": 2}, {"id": 3}]', _candidates("A", "B", "C"), 2)
 
-    assert [p.story["title"] for p in picks] == ["A", "B"]
+    assert _titles(picks) == ["A", "B"]
 
 
 def test_gather_caps_each_source_at_its_pool_and_drops_repeats_and_saved_stories():
@@ -143,11 +145,7 @@ def test_gather_keeps_going_when_one_source_fails():
             mock.patch.object(fetch, "_stories_from", stories_from):
         candidates = fetch.gather_candidates([{"label": "broken", "pool": 2}, {"label": "ok", "pool": 2}])
 
-    assert [c.story["title"] for c in candidates] == ["Works"]
-
-
-def _titles(candidates):
-    return [c.story["title"] for c in candidates]
+    assert _titles(candidates) == ["Works"]
 
 
 def test_save_order_falls_back_to_each_sources_quota_when_the_editor_fails():
@@ -162,14 +160,6 @@ def test_save_order_falls_back_to_each_sources_quota_when_the_editor_fails():
         order = fetch.save_order(candidates)
 
     assert _titles(order) == ["H1", "H2", "W1", "H3", "W2"]
-
-
-def test_save_order_falls_back_when_the_editor_names_no_real_candidates():
-    with mock.patch.object(fetch, "pick_stories", lambda candidates, count: []), \
-            mock.patch.object(fetch, "EDITOR_PLAN", [{"label": "nyt_homepage", "n": 1}]):
-        order = fetch.save_order(_candidates("H1", "H2"))
-
-    assert _titles(order) == ["H1", "H2"]
 
 
 def test_save_order_backfills_after_the_editors_picks_without_repeating_them():
@@ -189,7 +179,7 @@ def test_fetch_saves_pinned_stories_then_the_editors_picks_with_their_notes():
     feeds = {"bengals_hobson": [_story("Hobson")], "nyt_homepage": [_story("Dull"), _story("Ripe")]}
 
     def editor_picks(candidates, count):
-        return [editor.Candidate(story=candidates[1].story, label=candidates[1].label, note="it writes itself")]
+        return [dataclasses.replace(candidates[1], note="it writes itself")]
 
     with mock.patch.object(fetch, "_repo", repo), \
             mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
