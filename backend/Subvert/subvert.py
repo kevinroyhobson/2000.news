@@ -83,6 +83,7 @@ def pipeline_story(story: dict) -> dict:
         "title": story["Title"],
         "description": story.get("Description") or "",
         "entity_hints": _collect_entity_hints(story),
+        "editor_note": story.get("EditorNote") or "",
     }
 
 
