@@ -29,9 +29,22 @@ export default function StoryDetail(props) {
           <CopyStoryLink story={story}/>
         </Box>
 
-        {!isDebugMode &&
+        {!isDebugMode && !story.IsMashup &&
           <Box className='content'>
             {story.Description}
+          </Box>
+        }
+
+        {!isDebugMode && story.IsMashup && story.SourceStories.map((source) => (
+          <Box key={source.Title} mb={2} className='content'>
+            {source.Description}
+          </Box>
+        ))}
+
+        {isDebugMode && story.EditorNote &&
+          <Box mb={2} className='headline-list'>
+            <Box className='headline-list-header'>Editor's note:</Box>
+            {story.EditorNote}
           </Box>
         }
 

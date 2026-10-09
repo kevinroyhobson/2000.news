@@ -102,14 +102,27 @@ def _format_message(story: dict) -> str:
     headline = html.escape(story.get("Headline", "").strip())
     permalink = f"https://www.2000.news/{story['YearMonthDay']}/{story['HeadlineId']}"
     message = f"{headline}\n\n{permalink}"
-    original = html.escape(story.get("OriginalHeadline", "").strip())
-    if original:
-        url = story.get("Url", "").strip()
-        if url:
-            original = f'<a href="{html.escape(url, quote=True)}">{original}</a>'
-        source = html.escape(story.get("Source", "").strip())
-        message += f"\n\n({original}, {source})" if source else f"\n\n({original})"
+    sources = story.get("SourceStories") or [{
+        "Title": story.get("OriginalHeadline", ""),
+        "Url": story.get("Url", ""),
+        "Source": story.get("Source", ""),
+    }]
+    attributions = [line for line in map(_attribution, sources) if line]
+    if attributions:
+        message += "\n\n" + "\n".join(attributions)
     return message
+
+
+def _attribution(source: dict) -> str:
+    """'(Real headline, source)', with the headline linked to the article."""
+    original = html.escape((source.get("Title") or "").strip())
+    if not original:
+        return ""
+    url = (source.get("Url") or "").strip()
+    if url:
+        original = f'<a href="{html.escape(url, quote=True)}">{original}</a>'
+    source_id = html.escape((source.get("Source") or "").strip())
+    return f"({original}, {source_id})" if source_id else f"({original})"
 
 
 def _mark_sent(story: dict, message: dict) -> None:

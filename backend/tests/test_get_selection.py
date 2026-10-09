@@ -2,6 +2,7 @@ import importlib.util
 import pathlib
 import sys
 import types
+from unittest import mock
 
 
 class _DummyTable:
@@ -196,3 +197,39 @@ def test_sibling_headlines_use_selected_rank_field():
         "daily-rank-1-cross-10",
     ]
     assert [h["Rank"] for h in story["SiblingHeadlines"]] == [2, 10]
+
+
+def test_a_mashup_never_shares_a_page_with_one_of_its_sources():
+    get = _load_get_module()
+    mashup = {
+        **_headline("mashup", 1, story_id="mashup-story"),
+        "OriginalHeadline": "Yacht / Union",
+        "SourceHeadlines": ["Yacht", "Union"],
+    }
+    yacht = {**_headline("yacht", 2, story_id="yacht-story"), "OriginalHeadline": "Yacht"}
+    other = {**_headline("other", 3, story_id="other-story"), "OriginalHeadline": "Other"}
+
+    selected = get.select_headlines([mashup, yacht, other], requested_headline_id="", rank_field="Rank")
+
+    assert {h["HeadlineId"] for h in selected} == {"mashup", "other"}
+
+
+def test_mashup_story_never_shows_its_original_and_carries_its_sources():
+    get = _load_get_module()
+    headline = {**_headline("mashup", 1, story_id="mashup-story"), "OriginalHeadline": "Yacht / Union"}
+    sources = [{"Title": "Yacht"}, {"Title": "Union"}]
+
+    get.get_stories_for_day = lambda day: [{
+        "StoryId": "mashup-story",
+        "Title": "Yacht / Union",
+        "SourceStories": sources,
+        "EditorNote": "the collision",
+    }]
+
+    with mock.patch.object(get.random, "random", return_value=0):
+        [story] = get.enrich_with_story_details([headline], [headline])
+
+    assert story["ShowOriginal"] is False
+    assert story["IsMashup"] is True
+    assert story["SourceStories"] == sources
+    assert story["EditorNote"] == "the collision"

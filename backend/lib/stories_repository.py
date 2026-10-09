@@ -11,6 +11,8 @@ from botocore.exceptions import ClientError
 # leaves them alone.
 ON_DEMAND_FETCH_PREFIX = 'telegram:'
 
+MASHUP_FETCH_CATEGORY = 'mashup'
+
 
 class StoriesRepository:
     def __init__(self, table_name='Stories'):
@@ -52,9 +54,17 @@ class StoriesRepository:
             'FetchCategory': fetch_category,
             'Source': story.get('source_id'),
             'RetrievedTime': datetime.datetime.now().isoformat(),
-            'StoryId': ''.join(random.choices(string.ascii_lowercase + string.digits, k=5)),
+            'StoryId': _new_story_id(),
             **(extra_attributes or {}),
         }
+        return self._put_if_new(item)
+
+    def save_mashup(self, stories, editor_note):
+        """Save stories the editor combined as one story, unless the same
+        mashup already exists. Returns the saved item, or None if skipped."""
+        return self._put_if_new(mashup_item(stories, editor_note))
+
+    def _put_if_new(self, item):
         try:
             self._table.put_item(
                 Item=item,
@@ -64,7 +74,7 @@ class StoriesRepository:
 
         except ClientError as ex:
             if ex.response['Error']['Code'] == 'ConditionalCheckFailedException':
-                print(f"Skipped story '{story['title']}' because it already exists.")
+                print(f"Skipped story '{item['Title']}' because it already exists.")
             else:
                 raise ex
 
@@ -81,5 +91,43 @@ class StoriesRepository:
         return response.get('Item')
 
 
+def mashup_item(stories, editor_note):
+    """One Stories item standing in for several. The first story's photo and
+    link represent the mashup, and SourceStories keeps each real headline and
+    lede for the brainstorm prompt and the story page."""
+    lead = stories[0]
+    sources = [{
+        'Title': story['title'],
+        'Description': story.get('description') or '',
+        'Url': story['link'],
+        'Source': story.get('source_id'),
+    } for story in stories]
+    return {
+        'YearMonthDay': max(_publish_day(story) for story in stories),
+        'PublishedAt': lead['pubDate'],
+        'Title': ' / '.join(source['Title'] for source in sources),
+        'Description': '\n\n'.join(source['Description'] for source in sources),
+        'Url': lead['link'],
+        'ImageUrl': lead['image_url'],
+        'Keywords': _merged(stories, 'keywords'),
+        'Category': _merged(stories, 'category'),
+        'FetchCategory': MASHUP_FETCH_CATEGORY,
+        'Source': ' + '.join(dict.fromkeys(source['Source'] for source in sources if source['Source'])),
+        'SourceStories': sources,
+        'EditorNote': editor_note,
+        'RetrievedTime': datetime.datetime.now().isoformat(),
+        'StoryId': _new_story_id(),
+    }
+
+
+def _merged(stories, field):
+    """Every story's tags for field, in order; None when none have any."""
+    return [tag for story in stories for tag in story.get(field) or []] or None
+
+
 def _publish_day(story):
     return datetime.datetime.fromisoformat(story['pubDate']).strftime('%Y%m%d')
+
+
+def _new_story_id():
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))

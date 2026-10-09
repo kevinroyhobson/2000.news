@@ -174,7 +174,7 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     sorted_headlines = sorted(headlines, key=lambda h: (_grade_tier(h), get_rank(h)))
 
     result = []
-    picked_story_ids = set()
+    picked_stories = set()
 
     # Direct-link path: serve the requested headline regardless of grade
     # (so a meh/bad URL still resolves; user explicitly asked for that).
@@ -182,17 +182,17 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
         for h in sorted_headlines:
             if h['HeadlineId'] == requested_headline_id:
                 result.append(h)
-                picked_story_ids.add(h['StoryId'])
+                picked_stories |= _story_keys(h)
                 break
 
     # If no requested headline and no search query, pick highest-ranked unseen headline for #1
     if not result and not search_query:
         for h in ranked_headlines:
             if (h['HeadlineId'] not in seen_as_top
-                    and h['StoryId'] not in picked_story_ids
+                    and picked_stories.isdisjoint(_story_keys(h))
                     and not _is_filtered_grade(h)):
                 result.append(h)
-                picked_story_ids.add(h['StoryId'])
+                picked_stories |= _story_keys(h)
                 break
         # If all are seen, fall through to expanding pool algorithm
 
@@ -201,7 +201,7 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
         query_lower = search_query.lower()
         matching = [
             h for h in sorted_headlines
-            if h['StoryId'] not in picked_story_ids
+            if picked_stories.isdisjoint(_story_keys(h))
             and not _is_filtered_grade(h)
             and (
                 query_lower in h.get('Headline', '').lower() or
@@ -213,9 +213,9 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
         for h in matching:
             if len(result) >= 4:
                 break
-            if h['StoryId'] not in picked_story_ids:
+            if picked_stories.isdisjoint(_story_keys(h)):
                 result.append(h)
-                picked_story_ids.add(h['StoryId'])
+                picked_stories |= _story_keys(h)
 
     # Expanding pool selection: pick randomly from each pool
     pool_sizes = [16, 16, 32, 64]
@@ -224,24 +224,31 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
             break
         pool = [
             h for h in sorted_headlines[:pool_size]
-            if h['StoryId'] not in picked_story_ids
+            if picked_stories.isdisjoint(_story_keys(h))
             and not _is_filtered_grade(h)
         ]
         if pool:
             pick = random.choice(pool)
             result.append(pick)
-            picked_story_ids.add(pick['StoryId'])
+            picked_stories |= _story_keys(pick)
 
     # Fill remaining slots from unpicked stories in rank order
     for h in sorted_headlines:
         if len(result) >= 4:
             break
-        if (h['StoryId'] not in picked_story_ids
+        if (picked_stories.isdisjoint(_story_keys(h))
                 and not _is_filtered_grade(h)):
             result.append(h)
-            picked_story_ids.add(h['StoryId'])
+            picked_stories |= _story_keys(h)
 
     return result[:4]
+
+
+def _story_keys(h):
+    """What a headline is about: its story, plus each real headline it draws
+    on, so a mashup never shares a page with one of its own sources."""
+    titles = h.get('SourceHeadlines') or [h.get('OriginalHeadline')]
+    return {('story', h['StoryId'])} | {('headline', title) for title in titles if title}
 
 
 def enrich_with_story_details(selected_headlines, all_headlines, requested_headline_id='', rank_field='Rank'):
@@ -284,8 +291,14 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
         sibling_pool.sort(key=lambda s: (_grade_tier(s), s.get(rank_field) or (sib_max_rank + 1)))
         siblings = to_headline_list(sibling_pool, rank_field=rank_field)
 
-        # Don't show original if this headline was specifically requested via URL
-        show_original = False if h['HeadlineId'] == requested_headline_id else random.random() < 0.25
+        # A direct link always shows the satirical headline. A mashup's original
+        # is several real headlines glued together, which reads as obviously fake.
+        source_stories = story.get('SourceStories') or []
+        is_mashup = len(source_stories) > 1
+        if h['HeadlineId'] == requested_headline_id or is_mashup:
+            show_original = False
+        else:
+            show_original = random.random() < 0.25
 
         result.append({
             'HeadlineId': h['HeadlineId'],
@@ -302,6 +315,9 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
             'ImageUrl': story.get('ImageUrl', ''),
             'Source': story.get('Source', ''),
             'PublishedAt': story.get('PublishedAt', ''),
+            'EditorNote': story.get('EditorNote', ''),
+            'IsMashup': is_mashup,
+            'SourceStories': source_stories,
             'SiblingHeadlines': siblings,
         })
 

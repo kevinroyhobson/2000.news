@@ -1,4 +1,3 @@
-import dataclasses
 import importlib.util
 import pathlib
 import sys
@@ -36,6 +35,7 @@ class _FakeRepo:
     def __init__(self, existing_titles=()):
         self.existing_titles = set(existing_titles)
         self.saved = []
+        self.mashups = []
 
     def is_new(self, story):
         return story.get("image_url") is not None and story["title"] not in self.existing_titles
@@ -43,6 +43,10 @@ class _FakeRepo:
     def save_story(self, story, fetch_category, extra_attributes=None):
         self.saved.append((story["title"], fetch_category, extra_attributes))
         return story
+
+    def save_mashup(self, stories, editor_note):
+        self.mashups.append(([story["title"] for story in stories], editor_note))
+        return stories
 
 
 fetch = _load("Fetch/fetch.py", "fetch_module", {
@@ -65,11 +69,15 @@ def _titles(candidates):
     return [c.story["title"] for c in candidates]
 
 
-def test_prompt_states_the_count_before_and_after_the_listing():
-    prompt = editor.build_prompt(_candidates("A", "B"), 21)
+def _source_titles(picks):
+    return [[c.story["title"] for c in pick.sources] for pick in picks]
 
-    assert prompt.startswith("Pick the 21 stories to assign.\n\n[1] A")
-    assert prompt.endswith("\n\nPick the 21 stories to assign.")
+
+def test_prompt_states_the_count_before_and_after_the_listing():
+    prompt = editor.build_prompt(_candidates("A", "B"), 21, 5)
+
+    assert prompt.startswith("Pick the 21 stories to assign, up to 5 of them mashups.\n\n[1] A")
+    assert prompt.endswith("\n\nPick the 21 stories to assign, up to 5 of them mashups.")
 
 
 def test_prompt_numbers_candidates_from_one_and_flattens_descriptions():
@@ -78,7 +86,7 @@ def test_prompt_numbers_candidates_from_one_and_flattens_descriptions():
         editor.Candidate(story=_story("Bengals Win", source_id="espn.com"), label="espn_top"),
     ]
 
-    prompt = editor.build_prompt(candidates, 1)
+    prompt = editor.build_prompt(candidates, 1, 0)
 
     assert "[1] Mayor Declares War on Geese\n(nytimes.com) The mayor said so." in prompt
     assert "[2] Bengals Win\n(espn.com)" in prompt
@@ -87,7 +95,7 @@ def test_prompt_numbers_candidates_from_one_and_flattens_descriptions():
 def test_prompt_truncates_long_descriptions():
     candidate = editor.Candidate(story=_story("Title", "word " * 200), label="nyt_world")
 
-    prompt = editor.build_prompt([candidate], 1)
+    prompt = editor.build_prompt([candidate], 1, 0)
 
     description_line = next(line for line in prompt.splitlines() if line.startswith("(nytimes.com)"))
     assert description_line.endswith("…")
@@ -97,27 +105,46 @@ def test_prompt_truncates_long_descriptions():
 def test_picks_map_ids_to_candidates_in_the_editors_order_with_notes():
     candidates = _candidates("A", "B", "C")
 
-    picks = editor.parse_picks('[{"id": 3, "why": "absurd"}, {"id": 1, "why": " ironic "}]', candidates, 5)
+    picks = editor.parse_picks(
+        '[{"ids": [3], "why": "absurd"}, {"ids": [1, 2], "why": " collide "}]', candidates, 5, 5,
+    )
 
-    assert _titles(picks) == ["C", "A"]
-    assert [p.note for p in picks] == ["absurd", "ironic"]
+    assert _source_titles(picks) == [["C"], ["A", "B"]]
+    assert [p.note for p in picks] == ["absurd", "collide"]
+    assert [p.is_mashup for p in picks] == [False, True]
 
 
 def test_picks_skip_unknown_repeated_and_malformed_ids():
-    candidates = _candidates("A", "B")
+    candidates = _candidates("A", "B", "C", "D", "E")
 
     picks = editor.parse_picks(
-        '[{"id": 0}, {"id": 3}, {"id": "1"}, "junk", {"id": 2, "why": "x"}, {"id": 2, "why": "again"}]',
-        candidates, 5,
+        '[{"ids": [0]}, {"ids": [6]}, {"ids": ["1"]}, {"id": 1}, "junk", {"ids": []},'
+        ' {"ids": [1, 1]}, {"ids": [1, 2, 3, 4]}, {"ids": [2], "why": "x"}, {"ids": [2], "why": "again"},'
+        ' {"ids": [3, 4]}, {"ids": [4, 3]}]',
+        candidates, 21, 5,
     )
 
-    assert [(p.story["title"], p.note) for p in picks] == [("B", "x")]
+    assert _source_titles(picks) == [["B"], ["C", "D"]]
+
+
+def test_a_story_can_run_alone_and_in_a_mashup():
+    picks = editor.parse_picks('[{"ids": [1]}, {"ids": [1, 2]}]', _candidates("A", "B"), 21, 5)
+
+    assert _source_titles(picks) == [["A"], ["A", "B"]]
+
+
+def test_picks_skip_mashups_past_the_cap():
+    picks = editor.parse_picks(
+        '[{"ids": [1, 2]}, {"ids": [3, 4]}, {"ids": [5]}]', _candidates("A", "B", "C", "D", "E"), 21, 1,
+    )
+
+    assert _source_titles(picks) == [["A", "B"], ["E"]]
 
 
 def test_picks_stop_at_count():
-    picks = editor.parse_picks('[{"id": 1}, {"id": 2}, {"id": 3}]', _candidates("A", "B", "C"), 2)
+    picks = editor.parse_picks('[{"ids": [1]}, {"ids": [2]}, {"ids": [3]}]', _candidates("A", "B", "C"), 2, 5)
 
-    assert _titles(picks) == ["A", "B"]
+    assert _source_titles(picks) == [["A"], ["B"]]
 
 
 def test_gather_caps_each_source_at_its_pool_and_drops_repeats_and_saved_stories():
@@ -159,24 +186,27 @@ def test_save_order_falls_back_to_each_sources_quota_when_the_editor_fails():
     candidates = _candidates("H1", "H2", "H3", label="nyt_homepage") + _candidates("W1", "W2", label="nyt_world")
     plans = [{"label": "nyt_homepage", "n": 2}, {"label": "nyt_world", "n": 1}]
 
-    def broken_editor(candidates, count):
+    def broken_editor(candidates, count, max_mashups):
         raise RuntimeError("overloaded")
 
     with mock.patch.object(fetch, "pick_stories", broken_editor), \
             mock.patch.object(fetch, "EDITOR_PLAN", plans):
         order = fetch.save_order(candidates)
 
-    assert _titles(order) == ["H1", "H2", "W1", "H3", "W2"]
+    assert _source_titles(order) == [["H1"], ["H2"], ["W1"], ["H3"], ["W2"]]
 
 
-def test_save_order_backfills_after_the_editors_picks_without_repeating_them():
-    candidates = _candidates("H1", "H2", "H3")
+def test_save_order_backfills_after_the_editors_picks_without_repeating_their_stories():
+    candidates = _candidates("H1", "H2", "H3", "H4")
 
-    with mock.patch.object(fetch, "pick_stories", lambda candidates, count: [candidates[2]]), \
+    def editor_picks(candidates, count, max_mashups):
+        return [editor.Pick(sources=(candidates[2],)), editor.Pick(sources=(candidates[3], candidates[0]))]
+
+    with mock.patch.object(fetch, "pick_stories", editor_picks), \
             mock.patch.object(fetch, "EDITOR_PLAN", [{"label": "nyt_homepage", "n": 1}]):
         order = fetch.save_order(candidates)
 
-    assert _titles(order) == ["H3", "H1", "H2"]
+    assert _source_titles(order) == [["H3"], ["H4", "H1"], ["H2"]]
 
 
 def test_fetch_saves_pinned_stories_then_the_editors_picks_with_their_notes():
@@ -185,8 +215,8 @@ def test_fetch_saves_pinned_stories_then_the_editors_picks_with_their_notes():
     plans = [{"label": "nyt_homepage", "n": 1, "pool": 5}]
     feeds = {"bengals_hobson": [_story("Hobson")], "nyt_homepage": [_story("Dull"), _story("Ripe")]}
 
-    def editor_picks(candidates, count):
-        return [dataclasses.replace(candidates[1], note="it writes itself")]
+    def editor_picks(candidates, count, max_mashups):
+        return [editor.Pick(sources=(candidates[1],), note="it writes itself")]
 
     with mock.patch.object(fetch, "_repo", repo), \
             mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
@@ -215,10 +245,31 @@ def test_fetch_backfills_slots_the_editor_left_empty_or_a_save_turned_down():
 
     with mock.patch.object(fetch, "_repo", repo), \
             mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
-            mock.patch.object(fetch, "pick_stories", lambda candidates, count: [candidates[0]]), \
+            mock.patch.object(fetch, "pick_stories", lambda candidates, count, max_mashups: [editor.Pick(sources=(candidates[0],))]), \
             mock.patch.object(fetch, "PINNED_PLAN", []), \
             mock.patch.object(fetch, "EDITOR_PLAN", plans), \
             mock.patch.object(fetch, "EDITOR_PICK_COUNT", 2):
         fetch.fetch({}, None)
 
     assert [title for title, _, _ in repo.saved] == ["Backup 1", "Backup 2"]
+
+
+def test_fetch_files_a_mashup_as_one_story_that_fills_one_slot():
+    repo = _FakeRepo()
+    plans = [{"label": "nyt_homepage", "n": 0, "pool": 5}]
+    feeds = {"nyt_homepage": [_story("Yacht"), _story("Union"), _story("Spare")]}
+
+    def editor_picks(candidates, count, max_mashups):
+        return [editor.Pick(sources=(candidates[0], candidates[1]), note="the collision")]
+
+    with mock.patch.object(fetch, "_repo", repo), \
+            mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
+            mock.patch.object(fetch, "pick_stories", editor_picks), \
+            mock.patch.object(fetch, "PINNED_PLAN", []), \
+            mock.patch.object(fetch, "EDITOR_PLAN", plans), \
+            mock.patch.object(fetch, "EDITOR_PICK_COUNT", 2):
+        result = fetch.fetch({}, None)
+
+    assert repo.mashups == [(["Yacht", "Union"], "the collision")]
+    assert [title for title, _, _ in repo.saved] == ["Spare"]
+    assert "'mashup': 1" in result
