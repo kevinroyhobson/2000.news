@@ -1,6 +1,7 @@
 """Shared repository for saving stories to DynamoDB."""
 
 import datetime
+import hashlib
 import string
 import random
 import boto3
@@ -12,6 +13,13 @@ from botocore.exceptions import ClientError
 ON_DEMAND_FETCH_PREFIX = 'telegram:'
 
 MASHUP_FETCH_CATEGORY = 'mashup'
+
+# A story that ran only inside a mashup gets a row under this category so
+# later fetches see it as filed. The Stories stream trigger skips these rows.
+MASHUP_SOURCE_FETCH_CATEGORY = 'mashup-source'
+
+# DynamoDB caps a sort key at 1024 bytes; Title is the Stories sort key.
+MAX_TITLE_BYTES = 1024
 
 
 class StoriesRepository:
@@ -64,6 +72,18 @@ class StoriesRepository:
         mashup already exists. Returns the saved item, or None if skipped."""
         return self._put_if_new(mashup_item(stories, editor_note))
 
+    def mark_used_in_mashup(self, story):
+        """Record a story that ran inside a mashup under its own key, unless it
+        was also saved on its own."""
+        return self._put_if_new({
+            'YearMonthDay': _publish_day(story),
+            'Title': story['title'],
+            'PublishedAt': story['pubDate'],
+            'Url': story['link'],
+            'FetchCategory': MASHUP_SOURCE_FETCH_CATEGORY,
+            'RetrievedTime': datetime.datetime.now().isoformat(),
+        })
+
     def _put_if_new(self, item):
         try:
             self._table.put_item(
@@ -105,7 +125,7 @@ def mashup_item(stories, editor_note):
     return {
         'YearMonthDay': max(_publish_day(story) for story in stories),
         'PublishedAt': lead['pubDate'],
-        'Title': ' / '.join(source['Title'] for source in sources),
+        'Title': _fit_sort_key(' / '.join(source['Title'] for source in sources)),
         'Description': '\n\n'.join(source['Description'] for source in sources),
         'Url': lead['link'],
         'ImageUrl': lead['image_url'],
@@ -118,6 +138,17 @@ def mashup_item(stories, editor_note):
         'RetrievedTime': datetime.datetime.now().isoformat(),
         'StoryId': _new_story_id(),
     }
+
+
+def _fit_sort_key(title):
+    """The title, or a cut-down version plus a hash of the whole when it runs
+    past the sort-key limit, so distinct long titles keep distinct keys."""
+    encoded = title.encode()
+    if len(encoded) <= MAX_TITLE_BYTES:
+        return title
+    digest = hashlib.sha1(encoded).hexdigest()[:8]
+    prefix = encoded[:MAX_TITLE_BYTES - 16].decode(errors='ignore').rstrip()
+    return f"{prefix} … {digest}"
 
 
 def _merged(stories, field):

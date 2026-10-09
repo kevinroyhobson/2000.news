@@ -70,14 +70,20 @@ def fetch(event, context):
     """Lambda handler: save the pinned stories, then the editor's picks."""
     results = {plan['label']: _save_pinned(plan) for plan in PINNED_PLAN}
 
-    saved_picks = 0
+    saved_picks = []
     for pick in save_order(gather_candidates(EDITOR_PLAN)):
-        if saved_picks >= EDITOR_PICK_COUNT:
+        if len(saved_picks) >= EDITOR_PICK_COUNT:
             break
         if _save_pick(pick):
-            saved_picks += 1
+            saved_picks.append(pick)
             label = 'mashup' if pick.is_mashup else pick.sources[0].label
             results[label] = results.get(label, 0) + 1
+
+    # After every save, so a story the editor also ran alone keeps its own row.
+    for pick in saved_picks:
+        if pick.is_mashup:
+            for candidate in pick.sources:
+                _repo.mark_used_in_mashup(candidate.story)
 
     msg = f"Saved {sum(results.values())} stories: {results}"
     print(msg)

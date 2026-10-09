@@ -36,17 +36,23 @@ class _FakeRepo:
         self.existing_titles = set(existing_titles)
         self.saved = []
         self.mashups = []
+        self.events = []
 
     def is_new(self, story):
         return story.get("image_url") is not None and story["title"] not in self.existing_titles
 
     def save_story(self, story, fetch_category, extra_attributes=None):
         self.saved.append((story["title"], fetch_category, extra_attributes))
+        self.events.append(("saved", story["title"]))
         return story
 
     def save_mashup(self, stories, editor_note):
         self.mashups.append(([story["title"] for story in stories], editor_note))
+        self.events.append(("saved mashup", " / ".join(story["title"] for story in stories)))
         return stories
+
+    def mark_used_in_mashup(self, story):
+        self.events.append(("marked", story["title"]))
 
 
 fetch = _load("Fetch/fetch.py", "fetch_module", {
@@ -125,6 +131,12 @@ def test_picks_skip_unknown_repeated_and_malformed_ids():
     )
 
     assert _source_titles(picks) == [["B"], ["C", "D"]]
+
+
+def test_picks_skip_unhashable_ids_without_dropping_the_rest():
+    picks = editor.parse_picks('[{"ids": [[1], 2]}, {"ids": [2]}]', _candidates("A", "B"), 21, 5)
+
+    assert _source_titles(picks) == [["B"]]
 
 
 def test_a_story_can_run_alone_and_in_a_mashup():
@@ -260,16 +272,25 @@ def test_fetch_files_a_mashup_as_one_story_that_fills_one_slot():
     feeds = {"nyt_homepage": [_story("Yacht"), _story("Union"), _story("Spare")]}
 
     def editor_picks(candidates, count, max_mashups):
-        return [editor.Pick(sources=(candidates[0], candidates[1]), note="the collision")]
+        return [
+            editor.Pick(sources=(candidates[0], candidates[1]), note="the collision"),
+            editor.Pick(sources=(candidates[0],), note="alone too"),
+        ]
 
     with mock.patch.object(fetch, "_repo", repo), \
             mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
             mock.patch.object(fetch, "pick_stories", editor_picks), \
             mock.patch.object(fetch, "PINNED_PLAN", []), \
             mock.patch.object(fetch, "EDITOR_PLAN", plans), \
-            mock.patch.object(fetch, "EDITOR_PICK_COUNT", 2):
+            mock.patch.object(fetch, "EDITOR_PICK_COUNT", 3):
         result = fetch.fetch({}, None)
 
     assert repo.mashups == [(["Yacht", "Union"], "the collision")]
-    assert [title for title, _, _ in repo.saved] == ["Spare"]
+    assert repo.events == [
+        ("saved mashup", "Yacht / Union"),
+        ("saved", "Yacht"),
+        ("saved", "Spare"),
+        ("marked", "Yacht"),
+        ("marked", "Union"),
+    ]
     assert "'mashup': 1" in result

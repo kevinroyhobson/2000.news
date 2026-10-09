@@ -116,9 +116,9 @@ def _candidate_ids(choice, candidate_count: int):
     ids = choice.get("ids") if isinstance(choice, dict) else None
     if not isinstance(ids, list) or not 1 <= len(ids) <= MAX_STORIES_PER_MASHUP:
         return None
-    if len(set(ids)) != len(ids):
-        return None
     if not all(isinstance(i, int) and 1 <= i <= candidate_count for i in ids):
+        return None
+    if len(set(ids)) != len(ids):
         return None
     return ids
 

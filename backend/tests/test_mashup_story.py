@@ -63,6 +63,31 @@ def test_mashup_item_joins_its_sources_and_leads_with_the_first():
     assert item["SourceStories"][2]["Description"] == ""
 
 
+def test_mashup_title_fits_the_sort_key_limit_and_stays_distinct():
+    long_title = "Ünïcode " * 60
+    first = repository.mashup_item([
+        _story(long_title + "A", "2026-10-09T00:00:00+00:00", "a.example"),
+        _story(long_title + "B", "2026-10-09T00:00:00+00:00", "b.example"),
+    ], "")
+    second = repository.mashup_item([
+        _story(long_title + "A", "2026-10-09T00:00:00+00:00", "a.example"),
+        _story(long_title + "C", "2026-10-09T00:00:00+00:00", "b.example"),
+    ], "")
+
+    assert len(first["Title"].encode()) <= repository.MAX_TITLE_BYTES
+    assert first["Title"] != second["Title"]
+    assert first["SourceStories"][1]["Title"] == long_title + "B"
+
+
+def test_short_mashup_titles_are_kept_whole():
+    item = repository.mashup_item([
+        _story("Yacht", "2026-10-09T00:00:00+00:00", "a.example"),
+        _story("Union", "2026-10-09T00:00:00+00:00", "b.example"),
+    ], "")
+
+    assert item["Title"] == "Yacht / Union"
+
+
 def test_telegram_alert_links_every_source_of_a_mashup():
     message = telegram_alert._format_message({
         "Headline": "Billionaire Unionizes Yacht",
