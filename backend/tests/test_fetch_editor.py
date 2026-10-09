@@ -65,6 +65,13 @@ def _titles(candidates):
     return [c.story["title"] for c in candidates]
 
 
+def test_prompt_states_the_count_before_and_after_the_listing():
+    prompt = editor.build_prompt(_candidates("A", "B"), 21)
+
+    assert prompt.startswith("Pick the 21 stories to assign.\n\n[1] A")
+    assert prompt.endswith("\n\nPick the 21 stories to assign.")
+
+
 def test_prompt_numbers_candidates_from_one_and_flattens_descriptions():
     candidates = [
         editor.Candidate(story=_story("Mayor Declares War on Geese", "The mayor\n\nsaid  so."), label="nyt_homepage"),
@@ -73,7 +80,6 @@ def test_prompt_numbers_candidates_from_one_and_flattens_descriptions():
 
     prompt = editor.build_prompt(candidates, 1)
 
-    assert prompt.startswith("Pick the 1 stories to assign.")
     assert "[1] Mayor Declares War on Geese\n(nytimes.com) The mayor said so." in prompt
     assert "[2] Bengals Win\n(espn.com)" in prompt
 
@@ -83,8 +89,9 @@ def test_prompt_truncates_long_descriptions():
 
     prompt = editor.build_prompt([candidate], 1)
 
-    assert prompt.endswith("…")
-    assert len(prompt.split("\n")[-1]) < editor.DESCRIPTION_CHARS + 20
+    description_line = next(line for line in prompt.splitlines() if line.startswith("(nytimes.com)"))
+    assert description_line.endswith("…")
+    assert len(description_line) < editor.DESCRIPTION_CHARS + 20
 
 
 def test_picks_map_ids_to_candidates_in_the_editors_order_with_notes():

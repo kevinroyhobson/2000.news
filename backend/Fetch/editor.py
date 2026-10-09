@@ -69,7 +69,8 @@ def pick_stories(candidates: list, count: int) -> list:
 
 def build_prompt(candidates: list, count: int) -> str:
     listing = "\n\n".join(_describe(i, c) for i, c in enumerate(candidates, start=1))
-    return f"Pick the {count} stories to assign.\n\n{listing}"
+    instruction = f"Pick the {count} stories to assign."
+    return f"{instruction}\n\n{listing}\n\n{instruction}"
 
 
 def parse_picks(response_text: str, candidates: list, count: int) -> list:
