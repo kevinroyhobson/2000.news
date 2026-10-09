@@ -23,7 +23,7 @@ from lib.llm_json import parse_json_response
 from Subvert.pipeline import get_anthropic_client
 from TelegramScoop import page
 
-EXTRACT_MODEL = os.getenv("SCOOP_EXTRACT_MODEL", "claude-sonnet-5")
+EXTRACT_MODEL = os.getenv("SCOOP_EXTRACT_MODEL", "claude-sonnet-5-5")
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/128.0 Safari/537.36")
 MAX_PAGE_BYTES = 2_000_000

@@ -49,13 +49,13 @@ Each stage can use a different Anthropic model. Set via environment variables
 ANTHROPIC_API_KEY=sk-ant-...
 
 BRAINSTORM_MODEL=claude-opus-5-5
-GENERATE_MODEL=claude-sonnet-5
+GENERATE_MODEL=claude-sonnet-5-5
 ```
 
 ### Model options
 
-- `claude-haiku-4-5` - Fast, cheap, good at wordplay
-- `claude-sonnet-5` - Smarter, more expensive
+- `claude-haiku-5-5` - Fast, cheap, good at wordplay
+- `claude-sonnet-5-5` - Smarter, more expensive
 - `claude-opus-5-5` - Best, most expensive
 
 ## Local testing
