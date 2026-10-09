@@ -78,3 +78,19 @@ def test_direct_messages_are_ignored():
 def test_channel_username_matches_case_insensitively():
     chat = {"id": -1001, "username": "TwoThousandDotNews"}
     assert commands.parse(_post("https://example.com", chat=chat), CHANNEL).kind == "url"
+
+
+def test_permalink_is_a_permalink_request_not_a_scoop():
+    request = commands.parse(_post("https://www.2000.news/20261008/ccc10cac"), CHANNEL)
+    assert request.kind == "permalink"
+    assert commands.permalink_key(request.text) == ("20261008", "ccc10cac")
+
+
+def test_permalink_tolerates_what_a_share_sheet_adds():
+    for url in ("https://2000.news/20261008/CCC10CAC/", "http://www.2000.news/20261008/ccc10cac?ref=x"):
+        assert commands.permalink_key(url) == ("20261008", "ccc10cac")
+
+
+def test_site_link_that_names_no_headline_is_not_a_permalink():
+    assert commands.permalink_key("https://www.2000.news/20261008") is None
+    assert commands.permalink_key("https://www.2000.news.evil.com/20261008/ccc10cac") is None

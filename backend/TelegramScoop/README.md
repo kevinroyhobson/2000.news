@@ -35,7 +35,9 @@ The ranking in the reply is only for the reply. Nothing is written back.
 
 ## Links
 
-Anything with an `og:image` works: the image, title and publish time come
+A 2000.news permalink isn't a story to fetch; it posts that headline for
+grading instead (see `../TelegramReaction/README.md`). Anything else with an
+`og:image` works: the image, title and publish time come
 from the page's meta tags, and Claude picks the opening paragraphs out of the
 page text. A page with no image, no text, or a hostile status code gets a
 reply saying so instead of a story.

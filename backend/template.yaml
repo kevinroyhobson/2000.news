@@ -346,9 +346,10 @@ Resources:
             ParameterName: 2000news/*
 
   # Telegram's webhook target. Authenticates the secret token and hands the
-  # update off asynchronously: emoji reactions to the grader, channel posts
-  # that ask for a story to the scoop worker. Both take model calls, far
-  # longer than Telegram will wait before retrying the delivery.
+  # update off asynchronously: emoji reactions to the grader, posted
+  # permalinks to the reposter, channel posts that ask for a story to the
+  # scoop worker. Grading and scooping take model calls, far longer than
+  # Telegram will wait before retrying the delivery.
   TelegramWebhook:
     Type: AWS::Serverless::Function
     Properties:
@@ -359,6 +360,7 @@ Resources:
       Environment:
         Variables:
           REACTION_FUNCTION_NAME: !Ref TelegramReactionGrade
+          PERMALINK_FUNCTION_NAME: !Ref TelegramPermalinkPost
           SCOOP_FUNCTION_NAME: !Ref TelegramScoop
           TELEGRAM_CHAT_ID: "@twothousanddotnews"
       Events:
@@ -370,6 +372,8 @@ Resources:
       Policies:
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramReactionGrade
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TelegramPermalinkPost
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramScoop
         - SSMParameterReadPolicy:
@@ -390,6 +394,27 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref TelegramSentHeadlines
         - DynamoDBCrudPolicy:
+            TableName: !Ref SubvertedHeadlines
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
+
+  # Replies to a 2000.news permalink posted in the channel with that
+  # headline, recorded like an hourly post so a reaction on the reply grades
+  # it. Covers headlines the hourly poster never picks.
+  TelegramPermalinkPost:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TelegramReaction/permalink.handler
+      Runtime: python3.14
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TELEGRAM_CHAT_ID: "@twothousanddotnews"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TelegramSentHeadlines
+        - DynamoDBReadPolicy:
             TableName: !Ref SubvertedHeadlines
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*

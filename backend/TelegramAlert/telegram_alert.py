@@ -25,14 +25,13 @@ import urllib.request
 
 import boto3
 
+from lib.sent_headlines import record_post
 from lib.telegram import TelegramError, send_message
 
 API_BASE = os.environ.get("API_BASE", "https://api.2000.news")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 SENT_TABLE = os.environ.get("SENT_TABLE", "TelegramSentHeadlines")
-# Rows live long enough to resolve a late reaction; only the most recent ones
-# count as "seen" for headline selection.
-TTL_SECONDS = 14 * 24 * 60 * 60
+# Only the most recent posts count as "seen" for headline selection.
 SEEN_WINDOW_SECONDS = 3 * 24 * 60 * 60
 
 _dynamo = boto3.resource("dynamodb")
@@ -59,7 +58,7 @@ def handler(event, context):
     except TelegramError as e:
         print(f"Telegram send failed for {headline_id} ({e}); will retry next hour.")
         return
-    _mark_sent(story, message)
+    record_post(_sent_table, story, message)
     print(f"Posted headline {headline_id} as message {message.get('message_id')}.")
 
 
@@ -123,22 +122,3 @@ def _attribution(source: dict) -> str:
         original = f'<a href="{html.escape(url, quote=True)}">{original}</a>'
     source_id = html.escape((source.get("Source") or "").strip())
     return f"({original}, {source_id})" if source_id else f"({original})"
-
-
-def _mark_sent(story: dict, message: dict) -> None:
-    """Record the post. MessageId/ChatId are the reaction grader's lookup key."""
-    now = int(time.time())
-    item = {
-        "HeadlineId": story["HeadlineId"],
-        "YearMonthDay": story.get("YearMonthDay", ""),
-        "Headline": story.get("Headline", ""),
-        "OriginalHeadline": story.get("OriginalHeadline", ""),
-        "SentAt": now,
-        "ExpiresAt": now + TTL_SECONDS,
-    }
-    message_id = message.get("message_id")
-    chat_id = (message.get("chat") or {}).get("id")
-    if message_id is not None and chat_id is not None:
-        item["MessageId"] = int(message_id)
-        item["ChatId"] = int(chat_id)
-    _sent_table.put_item(Item=item)

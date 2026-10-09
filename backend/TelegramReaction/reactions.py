@@ -18,11 +18,12 @@ EMOJI_GRADES = {
     "🔥": "outstanding",
     "👍": "solid",
     "🤣": "solid",
+    "😐": "meh",
     "👎": "bad",
 }
 
 # Ties on reaction count break toward the strongest opinion.
-GRADE_PRECEDENCE = ("outstanding", "bad", "solid")
+GRADE_PRECEDENCE = ("outstanding", "bad", "solid", "meh")
 
 VARIATION_SELECTOR = "️"
 

@@ -32,16 +32,34 @@ raises, so the async retry rebuilds it again.
 | --- | --- | --- |
 | outstanding | 🔥 | Kept, plus a rationale, plus becomes an exemplar in the Tournament judge's system prompt |
 | solid | 👍 🤣 | Kept and served, no exemplar |
+| meh | 😐 | Pulled from the site |
 | bad | 👎 | Pulled from the site (Get filters meh/bad) |
 
-No emoji means meh; that grade stays a CLI-only call. Anything unmapped is
-ignored, including premium custom emoji. Telegram only permits reactions from
+Anything unmapped is ignored, including premium custom emoji. Telegram only permits reactions from
 its own fixed set, which is why it's 🤣 and not 😂. When a post carries several
 graded emoji the most-reacted one wins, ties breaking toward the stronger
-opinion (outstanding, then bad, then solid).
+opinion (outstanding, then bad, then solid, then meh).
 
 **Taking the reaction back off undoes the grade** and replies "Grade cleared". A grade
 set from the CLI is never cleared this way; only reaction-set grades are.
+
+## Grading a headline that never got posted
+
+The hourly poster only posts the best headline it hasn't posted yet, so most
+headlines (tournament losers, siblings you find in debug mode) never reach the
+channel. To grade one of those, post its permalink to the channel on its own:
+
+```
+https://www.2000.news/20261008/ccc10cac
+```
+
+The bot replies with that headline (and its grade, if it has one), and that
+reply grades like any other post. `permalink.py` does this by
+recording the reply in TelegramSentHeadlines exactly as the hourly poster
+records its posts, which also means the hourly poster won't post it again.
+
+A headline already in the channel isn't posted twice; the bot replies to the
+original post instead, so you can react there.
 
 ## Who can grade
 
@@ -70,6 +88,8 @@ for 14 days, so you can scroll back about that far.
 - `../TelegramWebhook/webhook.py` — authenticates and dispatches; nothing else.
   Shared with TelegramScoop, since a bot gets one webhook.
 - `grade.py` — the grading worker.
+- `permalink.py` — posts a headline on request so it can be graded (`tests/test_telegram_permalink.py`).
 - `reactions.py` — update → grade, pure functions (`tests/test_telegram_reactions.py`).
+- `../lib/sent_headlines.py` — the post records grading resolves, shared with TelegramAlert.
 - `../lib/curation.py` — grade writes, rationale, exemplar cache. Shared with
   `Scratch/curate_headlines.py`, which is what keeps the two paths identical.

@@ -54,6 +54,10 @@ def test_thumbs_up_and_laughing_grade_solid():
     assert reactions.parse(_count_update(("🤣", 1))).grade == "solid"
 
 
+def test_neutral_face_grades_meh():
+    assert reactions.parse(_count_update(("😐", 1))).grade == "meh"
+
+
 def test_thumbs_down_grades_bad():
     assert reactions.parse(_count_update(("👎", 1))).grade == "bad"
 
