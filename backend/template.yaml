@@ -178,7 +178,7 @@ Resources:
       Environment:
         Variables:
           BRAINSTORM_MODEL: claude-opus-5-5
-          GENERATE_MODEL: claude-sonnet-5
+          GENERATE_MODEL: claude-sonnet-5-5
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SubvertedHeadlines
@@ -244,7 +244,7 @@ Resources:
       Environment:
         Variables:
           TOURNAMENT_MODEL_FINAL: claude-opus-5-5
-          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
+          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5-5
           # Thinking depth per round type. Mass-cut rounds (same-day rounds
           # whose losers all land below the top-64 survivor line) ask for just
           # the best 3, unordered, at high effort — the cut is the only
@@ -402,11 +402,11 @@ Resources:
         Variables:
           TELEGRAM_CHAT_ID: "@twothousanddotnews"
           SCOOP_MAX_SEARCH_STORIES: "3"
-          SCOOP_EXTRACT_MODEL: claude-sonnet-5
+          SCOOP_EXTRACT_MODEL: claude-sonnet-5-5
           BRAINSTORM_MODEL: claude-opus-5-5
-          GENERATE_MODEL: claude-sonnet-5
+          GENERATE_MODEL: claude-sonnet-5-5
           TOURNAMENT_MODEL_FINAL: claude-opus-5-5
-          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5
+          TOURNAMENT_MODEL_ELIMINATION: claude-sonnet-5-5
           TOURNAMENT_ELIMINATION_EFFORT: "low"
           TOURNAMENT_FINAL_EFFORT: "high"
       Policies:

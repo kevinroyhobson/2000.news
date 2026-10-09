@@ -67,13 +67,12 @@ langfuse = get_client()
 SURVIVOR_COUNT = 64
 VERBOSE = os.getenv("TOURNAMENT_VERBOSE", "false").lower() == "true"
 MODEL_FINAL = os.getenv("TOURNAMENT_MODEL_FINAL", "claude-opus-5-5")
-MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5")
+MODEL_ELIMINATION = os.getenv("TOURNAMENT_MODEL_ELIMINATION", "claude-sonnet-5-5")
 # Thinking depth per round type: mass-cut rounds (see _use_pick3) run pick-3
 # at high effort because the cut is the only irreversible decision, full-rank
 # elimination rounds run medium because their loser positions are published
 # but a coarse ordering is enough, and the final runs high. Passed explicitly so behavior is pinned even if the API's
-# default effort changes. effort requires Sonnet 4.6+/Opus — remove it before
-# pointing MODEL_ELIMINATION at Haiku.
+# default effort changes.
 EFFORT_CUT = os.getenv("TOURNAMENT_CUT_EFFORT", "high")
 EFFORT_ELIMINATION = os.getenv("TOURNAMENT_ELIMINATION_EFFORT", "medium")
 EFFORT_FINAL = os.getenv("TOURNAMENT_FINAL_EFFORT", "high")
@@ -117,9 +116,9 @@ def get_anthropic_client():
 
 # ---------------------------------------------------------------------------
 # System prompt, cached via cache_control. With the appended exemplars it
-# clears every judge model's minimum cacheable prefix (Opus 5.5: 512 tokens,
-# Sonnet 5: 1024). Requests inside one batch process concurrently, so cache
-# hits are best-effort; the marker costs nothing on a miss.
+# clears every judge model's minimum cacheable prefix (512 tokens on both
+# Opus 5.5 and Sonnet 5.5). Requests inside one batch process concurrently,
+# so cache hits are best-effort; the marker costs nothing on a miss.
 # ---------------------------------------------------------------------------
 TOURNAMENT_SYSTEM_PROMPT = """You are a veteran comedy editor judging satirical news headlines in the style of The Onion and SimCity 2000's newspaper ticker. Your job is to rank headlines from best to worst based on craft and humor. You have decades of experience in satirical journalism and know exactly what separates a headline that gets a polite chuckle from one that makes coffee come out of someone's nose.
 
