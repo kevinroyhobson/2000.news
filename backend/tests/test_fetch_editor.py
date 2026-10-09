@@ -255,9 +255,12 @@ def test_fetch_backfills_slots_the_editor_left_empty_or_a_save_turned_down():
     plans = [{"label": "nyt_homepage", "n": 1, "pool": 5}]
     feeds = {"nyt_homepage": [_story("Raced"), _story("Backup 1"), _story("Backup 2"), _story("Backup 3")]}
 
+    def editor_picks(candidates, count, max_mashups):
+        return [editor.Pick(sources=(candidates[0],))]
+
     with mock.patch.object(fetch, "_repo", repo), \
             mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
-            mock.patch.object(fetch, "pick_stories", lambda candidates, count, max_mashups: [editor.Pick(sources=(candidates[0],))]), \
+            mock.patch.object(fetch, "pick_stories", editor_picks), \
             mock.patch.object(fetch, "PINNED_PLAN", []), \
             mock.patch.object(fetch, "EDITOR_PLAN", plans), \
             mock.patch.object(fetch, "EDITOR_PICK_COUNT", 2):

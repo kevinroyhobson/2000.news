@@ -78,12 +78,7 @@ def fetch(event, context):
             saved_picks.append(pick)
             label = 'mashup' if pick.is_mashup else pick.sources[0].label
             results[label] = results.get(label, 0) + 1
-
-    # After every save, so a story the editor also ran alone keeps its own row.
-    for pick in saved_picks:
-        if pick.is_mashup:
-            for candidate in pick.sources:
-                _repo.mark_used_in_mashup(candidate.story)
+    _mark_mashup_sources(saved_picks)
 
     msg = f"Saved {sum(results.values())} stories: {results}"
     print(msg)
@@ -108,6 +103,15 @@ def _save_pick(pick):
     candidate = pick.sources[0]
     extra_attributes = {'EditorNote': pick.note} if pick.note else None
     return _repo.save_story(candidate.story, candidate.label, extra_attributes=extra_attributes)
+
+
+def _mark_mashup_sources(saved_picks):
+    """Runs after every save, so a story the editor also ran alone keeps its
+    own row."""
+    for pick in saved_picks:
+        if pick.is_mashup:
+            for candidate in pick.sources:
+                _repo.mark_used_in_mashup(candidate.story)
 
 
 def _editor_picks(candidates):

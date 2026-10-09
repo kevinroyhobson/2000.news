@@ -429,8 +429,8 @@ def save_generated_headlines(stories: list, angles_per_story: list, requests: li
 
 def _story_block(story: dict, single_label: str) -> str:
     """The real story (or stories, for a mashup) a prompt is written from."""
-    sources = story.get("sources") or []
-    if len(sources) < 2:
+    sources = story.get("sources")
+    if not sources:
         return f'{single_label}: "{story['title']}"\nCONTEXT: "{story['description']}"'
 
     stories = "\n".join(
@@ -445,8 +445,8 @@ def _story_block(story: dict, single_label: str) -> str:
 def _mashup_attributes(story: dict) -> dict:
     """Marks a mashup's headlines and names its real headlines, which keeps
     the front page from pairing a mashup with one of its own sources."""
-    sources = story.get("sources") or []
-    if len(sources) < 2:
+    sources = story.get("sources")
+    if not sources:
         return {}
     return {"IsMashup": True, "SourceHeadlines": [source["title"] for source in sources]}
 

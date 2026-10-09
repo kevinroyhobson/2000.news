@@ -122,6 +122,7 @@ def mashup_item(stories, editor_note):
         'Url': story['link'],
         'Source': story.get('source_id'),
     } for story in stories]
+    outlets = dict.fromkeys(source['Source'] for source in sources if source['Source'])
     return {
         'YearMonthDay': max(_publish_day(story) for story in stories),
         'PublishedAt': lead['pubDate'],
@@ -132,7 +133,7 @@ def mashup_item(stories, editor_note):
         'Keywords': _merged(stories, 'keywords'),
         'Category': _merged(stories, 'category'),
         'FetchCategory': MASHUP_FETCH_CATEGORY,
-        'Source': ' + '.join(dict.fromkeys(source['Source'] for source in sources if source['Source'])),
+        'Source': ' + '.join(outlets),
         'SourceStories': sources,
         'EditorNote': editor_note,
         'RetrievedTime': datetime.datetime.now().isoformat(),
@@ -146,9 +147,9 @@ def _fit_sort_key(title):
     encoded = title.encode()
     if len(encoded) <= MAX_TITLE_BYTES:
         return title
-    digest = hashlib.sha1(encoded).hexdigest()[:8]
-    prefix = encoded[:MAX_TITLE_BYTES - 16].decode(errors='ignore').rstrip()
-    return f"{prefix} … {digest}"
+    suffix = f" … {hashlib.sha1(encoded).hexdigest()[:8]}"
+    prefix = encoded[:MAX_TITLE_BYTES - len(suffix.encode())].decode(errors='ignore').rstrip()
+    return prefix + suffix
 
 
 def _merged(stories, field):
