@@ -32,13 +32,13 @@ raises, so the async retry rebuilds it again.
 | --- | --- | --- |
 | outstanding | 🔥 | Kept, plus a rationale, plus becomes an exemplar in the Tournament judge's system prompt |
 | solid | 👍 🤣 | Kept and served, no exemplar |
+| meh | 😐 | Pulled from the site |
 | bad | 👎 | Pulled from the site (Get filters meh/bad) |
 
-No emoji means meh; that grade stays a CLI-only call. Anything unmapped is
-ignored, including premium custom emoji. Telegram only permits reactions from
+Anything unmapped is ignored, including premium custom emoji. Telegram only permits reactions from
 its own fixed set, which is why it's 🤣 and not 😂. When a post carries several
 graded emoji the most-reacted one wins, ties breaking toward the stronger
-opinion (outstanding, then bad, then solid).
+opinion (outstanding, then bad, then solid, then meh).
 
 **Taking the reaction back off undoes the grade** and replies "Grade cleared". A grade
 set from the CLI is never cleared this way; only reaction-set grades are.
@@ -54,7 +54,7 @@ https://www.2000.news/20261008/ccc10cac
 ```
 
 The bot replies with that headline (and its grade, if it has one), and that
-reply grades like any other post: react 🔥 👍 🤣 👎. `permalink.py` does this by
+reply grades like any other post. `permalink.py` does this by
 recording the reply in TelegramSentHeadlines exactly as the hourly poster
 records its posts, which also means the hourly poster won't post it again.
 

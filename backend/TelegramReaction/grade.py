@@ -38,6 +38,7 @@ GRADE_SOURCE = "telegram-reaction"
 GRADE_REPLY = {
     "outstanding": "🔥 <b>Outstanding</b>",
     "solid": "👍 <b>Solid</b>",
+    "meh": "😐 <b>Meh</b>",
     "bad": "👎 <b>Bad</b>",
 }
 

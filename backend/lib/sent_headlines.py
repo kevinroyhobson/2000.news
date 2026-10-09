@@ -1,9 +1,8 @@
 """Records of headlines posted to the Telegram channel (TelegramSentHeadlines).
 
-Written by the hourly poster (TelegramAlert) and by TelegramReaction/permalink.py
-when a headline is posted on request. Each row's MessageId is how the reaction
-grader maps an emoji tapped in the channel back to a headline, and its SentAt
-keeps the hourly poster from posting the same headline again.
+A row's MessageId is how the reaction grader maps an emoji tapped in the
+channel back to a headline, and its SentAt keeps the hourly poster from
+posting the same headline again.
 """
 
 import time
@@ -13,7 +12,6 @@ TTL_SECONDS = 14 * 24 * 60 * 60
 
 
 def record_post(table, headline: dict, message: dict) -> None:
-    """Record that `headline` went out as the Telegram `message`."""
     now = int(time.time())
     item = {
         "HeadlineId": headline["HeadlineId"],

@@ -3,10 +3,9 @@
 Telegram expects a fast 200 and retries anything else, so this function only
 authenticates the request and hands the update to a worker asynchronously:
 emoji reactions go to the grader (TelegramReaction), a posted 2000.news
-permalink goes to the worker that reposts that headline for grading, and
-channel posts that ask for a story go to the scoop worker (TelegramScoop).
-Grading and scooping take model calls, far longer than a webhook should hold
-open.
+permalink to the worker that reposts that headline for grading, and channel
+posts that ask for a story to the scoop worker (TelegramScoop). Grading and
+scooping take model calls, far longer than a webhook should hold open.
 
 Authentication is the secret token Telegram echoes back in a header (set with
 setWebhook; see Scratch/telegram_webhook.py). The endpoint is public, so an

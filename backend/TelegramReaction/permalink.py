@@ -3,9 +3,7 @@
 Invoked asynchronously by webhook.py when someone posts a bare 2000.news
 permalink. The bot replies with that headline and records the reply in
 TelegramSentHeadlines exactly as the hourly poster records its posts, which
-is what lets grade.py resolve an emoji tapped on the reply. That is how a
-headline the hourly poster never picks (a tournament loser, say) gets graded
-from a phone.
+is what lets grade.py resolve an emoji tapped on the reply.
 
 A headline that is already in the channel isn't posted twice: the reply
 points at the original post instead, which keeps its reactions working.
@@ -59,8 +57,8 @@ def handler(event, context):
 def format_headline(headline: dict) -> str:
     """The headline, the real one(s) it riffs on, and any grade it already has."""
     text = html.escape(headline.get("Headline", "").strip(), quote=False)
-    originals = headline.get("SourceHeadlines") or [headline.get("OriginalHeadline", "")]
-    originals = " + ".join(original.strip() for original in originals if original)
+    sources = headline.get("SourceHeadlines") or [headline.get("OriginalHeadline", "")]
+    originals = " + ".join(source.strip() for source in sources if source)
     if originals:
         text += f"\n\n({html.escape(originals, quote=False)})"
     if headline.get("Grade"):
