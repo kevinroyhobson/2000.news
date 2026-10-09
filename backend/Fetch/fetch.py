@@ -11,7 +11,8 @@ Runs 4x/day. Each run saves 23 stories:
     Politics / World.
 
 If the editor call fails, the run falls back to fixed per-source quotas
-(each plan's n), taking each source's candidates in feed order.
+(each plan's n), taking each source's candidates in feed order. The same
+quotas backfill any slot the editor leaves empty.
 
 Dedup across sources is handled at the DynamoDB layer: the Stories table uses
 (YearMonthDay, Title) as its composite key and save_story does a conditional
@@ -67,10 +68,13 @@ def fetch(event, context):
     """Lambda handler: save the pinned stories, then the editor's picks."""
     results = {plan['label']: _save_pinned(plan) for plan in PINNED_PLAN}
 
-    candidates = gather_candidates(EDITOR_PLAN)
-    for candidate in choose(candidates):
+    saved_picks = 0
+    for candidate in save_order(gather_candidates(EDITOR_PLAN)):
+        if saved_picks >= EDITOR_PICK_COUNT:
+            break
         extra_attributes = {'EditorNote': candidate.note} if candidate.note else None
         if _repo.save_story(candidate.story, candidate.label, extra_attributes=extra_attributes):
+            saved_picks += 1
             results[candidate.label] = results.get(candidate.label, 0) + 1
 
     msg = f"Saved {sum(results.values())} stories: {results}"
@@ -78,18 +82,27 @@ def fetch(event, context):
     return msg
 
 
-def choose(candidates):
-    """The editor's picks, or each source's first n if the editor fails."""
+def save_order(candidates):
+    """Every candidate, in the order to try saving them: the editor's picks,
+    then each source's first n, then the rest. Fetch stops once the paper is
+    full, so the backfill only fills slots the editor left empty or a save
+    turned down, and covers the whole run when the editor fails."""
+    picks = _editor_picks(candidates)
+    picked_titles = {c.story['title'] for c in picks}
+    unpicked = [c for c in candidates if c.story['title'] not in picked_titles]
+    quota = quota_picks(unpicked, EDITOR_PLAN)
+    quota_titles = {c.story['title'] for c in quota}
+    return picks + quota + [c for c in unpicked if c.story['title'] not in quota_titles]
+
+
+def _editor_picks(candidates):
     if not candidates:
         return []
     try:
         picks = pick_stories(candidates, EDITOR_PICK_COUNT)
     except Exception as e:
         print(f"Editor failed ({type(e).__name__}: {e}); falling back to per-source quotas.")
-        picks = []
-
-    if not picks:
-        return quota_picks(candidates, EDITOR_PLAN)
+        return []
 
     print(f"Editor picked {len(picks)} of {len(candidates)} candidates:")
     for candidate in picks:

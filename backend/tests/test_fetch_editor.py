@@ -146,7 +146,11 @@ def test_gather_keeps_going_when_one_source_fails():
     assert [c.story["title"] for c in candidates] == ["Works"]
 
 
-def test_choose_falls_back_to_each_sources_quota_when_the_editor_fails():
+def _titles(candidates):
+    return [c.story["title"] for c in candidates]
+
+
+def test_save_order_falls_back_to_each_sources_quota_when_the_editor_fails():
     candidates = _candidates("H1", "H2", "H3", label="nyt_homepage") + _candidates("W1", "W2", label="nyt_world")
     plans = [{"label": "nyt_homepage", "n": 2}, {"label": "nyt_world", "n": 1}]
 
@@ -155,19 +159,27 @@ def test_choose_falls_back_to_each_sources_quota_when_the_editor_fails():
 
     with mock.patch.object(fetch, "pick_stories", broken_editor), \
             mock.patch.object(fetch, "EDITOR_PLAN", plans):
-        picks = fetch.choose(candidates)
+        order = fetch.save_order(candidates)
 
-    assert [p.story["title"] for p in picks] == ["H1", "H2", "W1"]
+    assert _titles(order) == ["H1", "H2", "W1", "H3", "W2"]
 
 
-def test_choose_falls_back_when_the_editor_names_no_real_candidates():
-    candidates = _candidates("H1", "H2")
-
+def test_save_order_falls_back_when_the_editor_names_no_real_candidates():
     with mock.patch.object(fetch, "pick_stories", lambda candidates, count: []), \
             mock.patch.object(fetch, "EDITOR_PLAN", [{"label": "nyt_homepage", "n": 1}]):
-        picks = fetch.choose(candidates)
+        order = fetch.save_order(_candidates("H1", "H2"))
 
-    assert [p.story["title"] for p in picks] == ["H1"]
+    assert _titles(order) == ["H1", "H2"]
+
+
+def test_save_order_backfills_after_the_editors_picks_without_repeating_them():
+    candidates = _candidates("H1", "H2", "H3")
+
+    with mock.patch.object(fetch, "pick_stories", lambda candidates, count: [candidates[2]]), \
+            mock.patch.object(fetch, "EDITOR_PLAN", [{"label": "nyt_homepage", "n": 1}]):
+        order = fetch.save_order(candidates)
+
+    assert _titles(order) == ["H3", "H1", "H2"]
 
 
 def test_fetch_saves_pinned_stories_then_the_editors_picks_with_their_notes():
@@ -183,10 +195,33 @@ def test_fetch_saves_pinned_stories_then_the_editors_picks_with_their_notes():
             mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
             mock.patch.object(fetch, "pick_stories", editor_picks), \
             mock.patch.object(fetch, "PINNED_PLAN", pinned), \
-            mock.patch.object(fetch, "EDITOR_PLAN", plans):
+            mock.patch.object(fetch, "EDITOR_PLAN", plans), \
+            mock.patch.object(fetch, "EDITOR_PICK_COUNT", 1):
         fetch.fetch({}, None)
 
     assert repo.saved == [
         ("Hobson", "bengals_hobson", None),
         ("Ripe", "nyt_homepage", {"EditorNote": "it writes itself"}),
     ]
+
+
+def test_fetch_backfills_slots_the_editor_left_empty_or_a_save_turned_down():
+    class RejectingRepo(_FakeRepo):
+        def save_story(self, story, fetch_category, extra_attributes=None):
+            if story["title"] == "Raced":
+                return None
+            return super().save_story(story, fetch_category, extra_attributes)
+
+    repo = RejectingRepo()
+    plans = [{"label": "nyt_homepage", "n": 1, "pool": 5}]
+    feeds = {"nyt_homepage": [_story("Raced"), _story("Backup 1"), _story("Backup 2"), _story("Backup 3")]}
+
+    with mock.patch.object(fetch, "_repo", repo), \
+            mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
+            mock.patch.object(fetch, "pick_stories", lambda candidates, count: [candidates[0]]), \
+            mock.patch.object(fetch, "PINNED_PLAN", []), \
+            mock.patch.object(fetch, "EDITOR_PLAN", plans), \
+            mock.patch.object(fetch, "EDITOR_PICK_COUNT", 2):
+        fetch.fetch({}, None)
+
+    assert [title for title, _, _ in repo.saved] == ["Backup 1", "Backup 2"]
