@@ -5,10 +5,13 @@ Runs 4x/day. Each run saves 23 stories:
   - 2 pinned, saved straight from their source every run:
       1 advice (newsdata.io targeted query for syndicated advice columns)
       1 bengals.com Geoff Hobson story
+    The editor also sees whichever pinned stories this run saved, as
+    mashup ingredients only.
   - 21 chosen by the assignment editor (Fetch/editor.py) from a pool of
     ~70 candidates across newsdata entertainment + wildcard, ESPN top
     stories, and NYT MostViewed / HomePage / Technology / Business /
-    Politics / World.
+    Politics / World. Up to 5 of those can be mashups of 2-3 candidates,
+    each filed as one story.
 
 If the editor call fails, the run falls back to fixed per-source quotas
 (each plan's n), taking each source's candidates in feed order. The same
@@ -20,7 +23,7 @@ write, so the same headline appearing in multiple NYT feeds only lands once.
 Candidates already in the table are dropped before the editor sees them.
 """
 
-from Fetch.editor import Candidate, pick_stories
+from Fetch.editor import Candidate, Pick, pick_stories
 from lib.newsdata_client import NewsdataClient
 from lib.rss_client import RssClient
 from lib.stories_repository import StoriesRepository
@@ -29,6 +32,7 @@ from lib.stories_repository import StoriesRepository
 ADVICE_QUERY = '"Dear Abby" OR "Miss Manners" OR "Asking Eric" OR "Dear Annie" OR "Ask Amy"'
 
 EDITOR_PICK_COUNT = 21
+MAX_MASHUPS = 5
 
 # Cap on newsdata API calls per source. Unused for RSS (feeds are one-shot).
 MAX_API_CALLS_PER_SOURCE = 3
@@ -66,16 +70,21 @@ _repo = StoriesRepository()
 
 def fetch(event, context):
     """Lambda handler: save the pinned stories, then the editor's picks."""
-    results = {plan['label']: _save_pinned(plan) for plan in PINNED_PLAN}
+    results = {}
+    pinned = []
+    for plan in PINNED_PLAN:
+        saved = _save_pinned(plan)
+        results[plan['label']] = len(saved)
+        pinned += saved
 
     saved_picks = 0
-    for candidate in save_order(gather_candidates(EDITOR_PLAN)):
+    for pick in save_order(pinned + gather_candidates(EDITOR_PLAN)):
         if saved_picks >= EDITOR_PICK_COUNT:
             break
-        extra_attributes = {'EditorNote': candidate.note} if candidate.note else None
-        if _repo.save_story(candidate.story, candidate.label, extra_attributes=extra_attributes):
+        if _save_pick(pick):
             saved_picks += 1
-            results[candidate.label] = results.get(candidate.label, 0) + 1
+            label = 'mashup' if pick.is_mashup else pick.sources[0].label
+            results[label] = results.get(label, 0) + 1
 
     msg = f"Saved {sum(results.values())} stories: {results}"
     print(msg)
@@ -83,29 +92,52 @@ def fetch(event, context):
 
 
 def save_order(candidates):
-    """Every candidate, in the order fetch tries to save them: the editor's
-    picks, then each source's first n, then the rest. Fetch stops once the
-    paper is full, so the backfill only reaches slots the editor left empty
-    or a save turned down."""
+    """Every pick, in the order fetch tries to save them: the editor's single
+    stories, then its mashups, then each unpicked source's first n, then the
+    rest, as single stories. Singles go before mashups because saving a
+    mashup marks its sources as used, and a story the editor also ran alone
+    needs its own row first. Fetch stops once the paper is full, so the
+    backfill only reaches slots the editor left empty or a save turned down."""
     picks = _editor_picks(candidates)
-    picked_titles = {c.story['title'] for c in picks}
-    unpicked = [c for c in candidates if c.story['title'] not in picked_titles]
+    singles = [pick for pick in picks if not pick.is_mashup]
+    mashups = [pick for pick in picks if pick.is_mashup]
+    picked_titles = {c.story['title'] for pick in picks for c in pick.sources}
+    unpicked = [c for c in candidates if not c.pinned and c.story['title'] not in picked_titles]
     within_quota, beyond_quota = _split_by_quota(unpicked, EDITOR_PLAN)
-    return picks + within_quota + beyond_quota
+    return singles + mashups + [Pick(sources=(c,)) for c in within_quota + beyond_quota]
+
+
+def _save_pick(pick):
+    if pick.is_mashup:
+        saved = _repo.save_mashup([c.story for c in pick.sources], pick.note)
+        _mark_mashup_sources(pick)
+        return saved
+    candidate = pick.sources[0]
+    extra_attributes = {'EditorNote': pick.note} if pick.note else None
+    return _repo.save_story(candidate.story, candidate.label, extra_attributes=extra_attributes)
+
+
+def _mark_mashup_sources(pick):
+    """Marks each source as filed, even when the mashup itself already existed
+    from an earlier run. Pinned stories already have their own rows."""
+    for candidate in pick.sources:
+        if not candidate.pinned:
+            _repo.mark_used_in_mashup(candidate.story)
 
 
 def _editor_picks(candidates):
     if not candidates:
         return []
     try:
-        picks = pick_stories(candidates, EDITOR_PICK_COUNT)
+        picks = pick_stories(candidates, EDITOR_PICK_COUNT, MAX_MASHUPS)
     except Exception as e:
         print(f"Editor failed ({type(e).__name__}: {e}); falling back to per-source quotas.")
         return []
 
-    print(f"Editor picked {len(picks)} of {len(candidates)} candidates:")
-    for candidate in picks:
-        print(f"  [{candidate.label}] {candidate.story['title']} — {candidate.note}")
+    print(f"Editor made {len(picks)} picks from {len(candidates)} candidates:")
+    for pick in picks:
+        sources = ' + '.join(f"[{c.label}] {c.story['title']}" for c in pick.sources)
+        print(f"  {sources} — {pick.note}")
     return picks
 
 
@@ -146,19 +178,20 @@ def gather_candidates(plans):
 
 
 def _save_pinned(plan):
-    """Save stories from the source in order until n are saved."""
+    """Save stories from the source in order until n are saved. Returns them
+    as candidates the editor may only use inside mashups."""
     label = plan['label']
-    saved = 0
+    saved = []
     try:
         for story in _stories_from(plan):
             print(f"Processing [{label}] '{story['title']}' ({story.get('source_id', 'unknown')})")
             if _repo.save_story(story, label):
-                saved += 1
-                if saved >= plan['n']:
+                saved.append(Candidate(story=story, label=label, pinned=True))
+                if len(saved) >= plan['n']:
                     break
     except Exception as e:
         print(f"Error fetching {label}: {type(e).__name__}: {e}")
-    print(f"[{label}] saved {saved}/{plan['n']}")
+    print(f"[{label}] saved {len(saved)}/{plan['n']}")
     return saved
 
 

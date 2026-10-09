@@ -16,7 +16,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from dynamodb_json import json_util as dynamodb_json
 
-from lib.stories_repository import ON_DEMAND_FETCH_PREFIX
+from lib.stories_repository import MASHUP_SOURCE_FETCH_CATEGORY, ON_DEMAND_FETCH_PREFIX
 
 _dynamo_resource = boto3.resource("dynamodb")
 _headlines_table = _dynamo_resource.Table("SubvertedHeadlines")
@@ -56,6 +56,10 @@ def subvert(event, context):
             print(f"Skipped {story['Title']} because it is subverted on demand.")
             continue
 
+        if story.get("FetchCategory") == MASHUP_SOURCE_FETCH_CATEGORY:
+            print(f"Skipped {story['Title']} because it only ran inside a mashup.")
+            continue
+
         if story_id and do_headlines_exist_for_story(story["YearMonthDay"], story_id):
             print(f"Skipped {story['Title']} because headlines already exist.")
             continue
@@ -84,6 +88,10 @@ def pipeline_story(story: dict) -> dict:
         "description": story.get("Description") or "",
         "entity_hints": _collect_entity_hints(story),
         "editor_note": story.get("EditorNote") or "",
+        "sources": [
+            {"title": source["Title"], "description": source.get("Description") or ""}
+            for source in story.get("SourceStories") or []
+        ],
     }
 
 

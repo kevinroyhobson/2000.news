@@ -12,7 +12,7 @@ updated state, which the state machine passes through whole:
 
     {
       "stories": [{year_month_day, story_id, title, description,
-                   entity_hints, editor_note, random_words}],
+                   entity_hints, editor_note, sources, random_words}],
       "angles":  [[{angle_name, setup, keywords, brainstorm_model,
                     generate_model}, ...] per story],
       "batch":   {batch_id, status, polls, timed_out}
@@ -247,9 +247,9 @@ def build_brainstorm_request(story: dict, index: int) -> dict:
     editor_line = ""
     if story.get("editor_note"):
         editor_line = f"\nWhy the editor assigned it: {story['editor_note']}"
+    story_block = _story_block(story, single_label="HEADLINE")
 
-    prompt = f"""HEADLINE: "{story['title']}"
-CONTEXT: "{story['description']}"{entity_line}{editor_line}
+    prompt = f"""{story_block}{entity_line}{editor_line}
 
 Random words for absurdist friction: {', '.join(story['random_words'])}
 Aim to work 2–3 of these in across your angles. Awkward or forced fits are often funnier than natural ones — the juxtaposition is part of the joke. Don't let them swamp the real story.{get_few_shot_examples()}"""
@@ -331,8 +331,7 @@ def build_generate_requests(stories: list, angles_per_story: list) -> list:
         for ai, angle in enumerate(angles):
             prompt = f"""Write 3-4 funny headlines based on this angle.
 
-ORIGINAL HEADLINE: "{story['title']}"
-CONTEXT: "{story['description']}"
+{_story_block(story, single_label="ORIGINAL HEADLINE")}
 
 COMEDIC ANGLE: {angle['angle_name']}
 APPROACH: {angle['setup']}
@@ -416,6 +415,7 @@ def save_generated_headlines(stories: list, angles_per_story: list, requests: li
                     "GenerateModel": angle.get("generate_model", ""),
                     "StoryId": story["story_id"],
                     "OriginalHeadline": story["title"],
+                    **_mashup_attributes(story),
                     **(extra_attributes or {}),
                 }
                 _headlines_table.put_item(Item=item)
@@ -425,6 +425,30 @@ def save_generated_headlines(stories: list, angles_per_story: list, requests: li
         print(f"Saved {story_saved} headlines for story {story['story_id']} ('{story['title']}')")
 
     return saved
+
+
+def _story_block(story: dict, single_label: str) -> str:
+    """The real story (or stories, for a mashup) a prompt is written from."""
+    sources = story.get("sources")
+    if not sources:
+        return f'{single_label}: "{story['title']}"\nCONTEXT: "{story['description']}"'
+
+    stories = "\n".join(
+        f'STORY {i}: "{source["title"]}"\nCONTEXT: "{source["description"]}"'
+        for i, source in enumerate(sources, start=1)
+    )
+    return (f"MASHUP: {len(sources)} real stories collide in one headline. Every angle "
+            f"and headline needs all of them; one that only uses a single story is a "
+            f"failed mashup.\n{stories}")
+
+
+def _mashup_attributes(story: dict) -> dict:
+    """Marks a mashup's headlines and names its real headlines, which keeps
+    the front page from pairing a mashup with one of its own sources."""
+    sources = story.get("sources")
+    if not sources:
+        return {}
+    return {"IsMashup": True, "SourceHeadlines": [source["title"] for source in sources]}
 
 
 def _headline_id(story_id: str, angle_index: int, headline_index: int) -> str:
