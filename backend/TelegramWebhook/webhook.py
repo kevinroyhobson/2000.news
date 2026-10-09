@@ -2,9 +2,11 @@
 
 Telegram expects a fast 200 and retries anything else, so this function only
 authenticates the request and hands the update to a worker asynchronously:
-emoji reactions go to the grader (TelegramReaction), and channel posts that
-ask for a story go to the scoop worker (TelegramScoop). Both take model calls,
-far longer than a webhook should hold open.
+emoji reactions go to the grader (TelegramReaction), a posted 2000.news
+permalink goes to the worker that reposts that headline for grading, and
+channel posts that ask for a story go to the scoop worker (TelegramScoop).
+Grading and scooping take model calls, far longer than a webhook should hold
+open.
 
 Authentication is the secret token Telegram echoes back in a header (set with
 setWebhook; see Scratch/telegram_webhook.py). The endpoint is public, so an
@@ -25,6 +27,7 @@ SECRET_NAME = "telegram-webhook-secret"
 SECRET_HEADER = "x-telegram-bot-api-secret-token"
 REACTION_UPDATES = ("message_reaction", "message_reaction_count")
 REACTION_FUNCTION_NAME = os.environ["REACTION_FUNCTION_NAME"]
+PERMALINK_FUNCTION_NAME = os.environ["PERMALINK_FUNCTION_NAME"]
 SCOOP_FUNCTION_NAME = os.environ["SCOOP_FUNCTION_NAME"]
 CHANNEL = os.environ["TELEGRAM_CHAT_ID"]
 
@@ -63,9 +66,12 @@ def handler(event, context):
 def _worker_for(update: dict):
     if any(key in update for key in REACTION_UPDATES):
         return REACTION_FUNCTION_NAME
-    if commands.parse(update, CHANNEL):
-        return SCOOP_FUNCTION_NAME
-    return None
+    request = commands.parse(update, CHANNEL)
+    if not request:
+        return None
+    if request.kind == "permalink":
+        return PERMALINK_FUNCTION_NAME
+    return SCOOP_FUNCTION_NAME
 
 
 def _body(event) -> str:

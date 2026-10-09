@@ -29,6 +29,7 @@ repository = _load("lib/stories_repository.py", "stories_repository_module", {
 
 telegram_alert = _load("TelegramAlert/telegram_alert.py", "telegram_alert_module", {
     "boto3": _stub_module("boto3", resource=lambda *args, **kwargs: types.SimpleNamespace(Table=lambda name: None)),
+    "lib.sent_headlines": _stub_module("lib.sent_headlines", record_post=None),
     "lib.telegram": _stub_module("lib.telegram", TelegramError=Exception, send_message=None),
 })
 
