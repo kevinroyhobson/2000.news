@@ -145,6 +145,18 @@ def test_a_story_can_run_alone_and_in_a_mashup():
     assert _source_titles(picks) == [["A"], ["A", "B"]]
 
 
+def test_pinned_stories_are_marked_and_only_used_inside_mashups():
+    regular = _candidates("A")
+    pinned = [editor.Candidate(story=_story("Dear Abby", source_id="newsdata.io"), label="advice", pinned=True)]
+    candidates = regular + pinned
+
+    prompt = editor.build_prompt(candidates, 21, 5)
+    picks = editor.parse_picks('[{"ids": [2]}, {"ids": [1, 2]}, {"ids": [1]}]', candidates, 21, 5)
+
+    assert "[2] Dear Abby\n(newsdata.io, already running: mashups only)" in prompt
+    assert _source_titles(picks) == [["A", "Dear Abby"], ["A"]]
+
+
 def test_picks_skip_mashups_past_the_cap():
     picks = editor.parse_picks(
         '[{"ids": [1, 2]}, {"ids": [3, 4]}, {"ids": [5]}]', _candidates("A", "B", "C", "D", "E"), 21, 1,
@@ -228,7 +240,8 @@ def test_fetch_saves_pinned_stories_then_the_editors_picks_with_their_notes():
     feeds = {"bengals_hobson": [_story("Hobson")], "nyt_homepage": [_story("Dull"), _story("Ripe")]}
 
     def editor_picks(candidates, count, max_mashups):
-        return [editor.Pick(sources=(candidates[1],), note="it writes itself")]
+        ripe = next(c for c in candidates if c.story["title"] == "Ripe")
+        return [editor.Pick(sources=(ripe,), note="it writes itself")]
 
     with mock.patch.object(fetch, "_repo", repo), \
             mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
@@ -297,3 +310,32 @@ def test_fetch_files_a_mashup_as_one_story_that_fills_one_slot():
         ("marked", "Union"),
     ]
     assert "'mashup': 1" in result
+
+
+def test_pinned_stories_reach_the_editor_but_never_the_backfill_or_the_markers():
+    repo = _FakeRepo()
+    pinned = [{"label": "advice", "n": 1}]
+    plans = [{"label": "nyt_homepage", "n": 5, "pool": 5}]
+    feeds = {"advice": [_story("Dear Abby")], "nyt_homepage": [_story("Coup"), _story("Spare")]}
+    offered = []
+
+    def editor_picks(candidates, count, max_mashups):
+        offered.extend((c.story["title"], c.pinned) for c in candidates)
+        abby, coup = candidates[0], candidates[1]
+        return [editor.Pick(sources=(coup, abby), note="advice for a junta")]
+
+    with mock.patch.object(fetch, "_repo", repo), \
+            mock.patch.object(fetch, "_stories_from", lambda plan: iter(feeds[plan["label"]])), \
+            mock.patch.object(fetch, "pick_stories", editor_picks), \
+            mock.patch.object(fetch, "PINNED_PLAN", pinned), \
+            mock.patch.object(fetch, "EDITOR_PLAN", plans), \
+            mock.patch.object(fetch, "EDITOR_PICK_COUNT", 5):
+        fetch.fetch({}, None)
+
+    assert offered == [("Dear Abby", True), ("Coup", False), ("Spare", False)]
+    assert repo.events == [
+        ("saved", "Dear Abby"),
+        ("saved mashup", "Coup / Dear Abby"),
+        ("saved", "Spare"),
+        ("marked", "Coup"),
+    ]
