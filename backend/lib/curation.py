@@ -42,15 +42,25 @@ TOURNAMENT_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', 'Tournament', 'pipeline.py'
 )
 
-RATIONALE_SYSTEM = """You explain why satirical news headlines work, in the style of a comedy editor's brief annotation.
+RATIONALE_STYLE_EXAMPLES = """Examples of the style:
+- "Hit on" means both flirtation and literally being punched. The advice column framing sells the misdirection — you read it one way, then the other meaning clicks.
+- Format-borrowing: missing-persons flyer + sports box score in the same breath. The deadpan-realism details sell the format; the pivot ("defeat search party") is the punchline."""
+
+RATIONALE_SYSTEM = f"""You explain why satirical news headlines work, in the style of a comedy editor's brief annotation.
 
 Given a satirical headline (and the original news headline it riffs on), write ONE sentence (<=35 words) explaining why the headline works. Focus on the comic device — wordplay, format-borrowing, literal-reading absurdism, deadpan-institutional framing, surprise misdirection — and what specifically makes it land.
 
-Examples of the style:
-- "Hit on" means both flirtation and literally being punched. The advice column framing sells the misdirection — you read it one way, then the other meaning clicks.
-- Format-borrowing: missing-persons flyer + sports box score in the same breath. The deadpan-realism details sell the format; the pivot ("defeat search party") is the punchline.
+{RATIONALE_STYLE_EXAMPLES}
 
 Reply with ONLY the explanation. No preamble, no quotes around it."""
+
+REFINE_SYSTEM = f"""You revise a comedy editor's brief annotation explaining why a satirical news headline works.
+
+You get the satirical headline, the original news headline it riffs on, the current explanation, and a note from the editor about what makes the headline land for them. Rewrite the explanation so the editor's point is part of why the headline works, woven into the reasoning rather than tacked onto the end. Keep whatever in the current explanation still holds, and drop anything the note contradicts. Aim for one sentence; use two only if the note needs the room. Stay under 50 words.
+
+{RATIONALE_STYLE_EXAMPLES}
+
+Reply with ONLY the rewritten explanation. No preamble, no quotes around it."""
 
 
 _anthropic_client = None
@@ -77,22 +87,19 @@ def _now_iso() -> str:
     return datetime.datetime.now(ZoneInfo('UTC')).isoformat()
 
 
-def _gen_rationale_once(headline: str, original: str, model: str) -> str:
+def _ask_once(system: str, content: str, model: str) -> str:
     client = get_anthropic_client()
     msg = client.messages.create(
         model=model,
         # Adaptive thinking on both the Opus 5.5 primary and Sonnet 5.5 fallback.
-        # The rationale is one sentence, but thinking tokens count against
+        # The rationale is a sentence or two, but thinking tokens count against
         # max_tokens, so this is bumped well above the answer size to leave room
         # for the think. The text-block filter below already skips the thinking
         # block.
         max_tokens=4096,
         thinking={'type': 'adaptive'},
-        system=RATIONALE_SYSTEM,
-        messages=[{
-            'role': 'user',
-            'content': f'SATIRICAL: "{headline}"\nORIGINAL: "{original}"',
-        }],
+        system=system,
+        messages=[{'role': 'user', 'content': content}],
     )
     text_blocks = [b for b in msg.content if getattr(b, 'type', None) == 'text']
     if text_blocks:
@@ -106,14 +113,26 @@ def _gen_rationale_once(headline: str, original: str, model: str) -> str:
     )
 
 
-def gen_rationale(headline: str, original: str, on_refusal=None) -> str:
-    """Generate a rationale, falling back to Sonnet if Opus refuses."""
+def _ask(system: str, content: str, on_refusal=None) -> str:
+    """Ask Opus, falling back to Sonnet if Opus refuses."""
     try:
-        return _gen_rationale_once(headline, original, RATIONALE_MODEL)
+        return _ask_once(system, content, RATIONALE_MODEL)
     except RefusalError as e:
         if on_refusal:
             on_refusal(e)
-        return _gen_rationale_once(headline, original, RATIONALE_FALLBACK_MODEL)
+        return _ask_once(system, content, RATIONALE_FALLBACK_MODEL)
+
+
+def gen_rationale(headline: str, original: str, on_refusal=None) -> str:
+    return _ask(RATIONALE_SYSTEM, f'SATIRICAL: "{headline}"\nORIGINAL: "{original}"', on_refusal)
+
+
+def refine_rationale(headline: str, original: str, rationale: str, note: str,
+                     on_refusal=None) -> str:
+    """Rewrite a rationale around the editor's note on what makes it work."""
+    content = (f'SATIRICAL: "{headline}"\nORIGINAL: "{original}"\n'
+               f'CURRENT EXPLANATION: "{rationale}"\nEDITOR\'S NOTE: "{note}"')
+    return _ask(REFINE_SYSTEM, content, on_refusal)
 
 
 def apply_grade(table, year_month_day: str, headline_id: str, grade: str,
@@ -143,6 +162,17 @@ def apply_grade(table, year_month_day: str, headline_id: str, grade: str,
         values[':u'] = reaction_update_id
         kwargs['ConditionExpression'] = _not_superseded(reaction_update_id)
     return _update(table, kwargs)
+
+
+def set_rationale(table, year_month_day: str, headline_id: str, rationale: str) -> bool:
+    """Replace an outstanding headline's rationale. Refused (returning False)
+    if the headline is no longer outstanding."""
+    return _update(table, {
+        'Key': {'YearMonthDay': year_month_day, 'HeadlineId': headline_id},
+        'UpdateExpression': 'SET Rationale = :r',
+        'ExpressionAttributeValues': {':r': rationale},
+        'ConditionExpression': Attr('Grade').eq('outstanding'),
+    })
 
 
 def clear_grade(table, year_month_day: str, headline_id: str, only_if_source: str = '',
