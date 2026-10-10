@@ -1,14 +1,14 @@
 """What a channel post is asking for, if anything. Pure functions
 (tests/test_telegram_commands.py).
 
-Three requests are recognised, and only from the configured channel:
+Four requests are recognised, and only from the configured channel:
 
     https://www.2000.news/20261008/ccc10cac   a permalink: post that headline for grading
     https://example.com/some-article          any other bare URL: fetch that story
     /scoop <topic>                            search the news for a topic
+    any other text, posted as a reply         a note on the post it replies to
 
-Everything else posted to the channel (the hourly headlines, replies, chat)
-is ignored.
+Everything else posted to the channel (the hourly headlines, chat) is ignored.
 """
 
 import re
@@ -23,10 +23,11 @@ _COMMAND = re.compile(rf"^{COMMAND}(?:@\w+)?(?:\s+(.*))?$", re.IGNORECASE | re.D
 
 @dataclass(frozen=True)
 class Request:
-    kind: str  # "permalink", "url", "search", or "usage" for a bare /scoop
+    kind: str  # "permalink", "url", "search", "reply", or "usage" for a bare /scoop
     text: str
     chat_id: int
     message_id: int
+    reply_to_message_id: int = None
 
 
 def parse(update: dict, channel: str):
@@ -41,11 +42,15 @@ def parse(update: dict, channel: str):
         return None
 
     text = (post.get("text") or "").strip()
+    replied_to = (post.get("reply_to_message") or {}).get("message_id")
     kind, argument = _classify(text)
+    if kind is None and text and replied_to is not None:
+        kind, argument = "reply", text
     if kind is None:
         return None
     return Request(kind=kind, text=argument, chat_id=int(chat["id"]),
-                   message_id=int(post["message_id"]))
+                   message_id=int(post["message_id"]),
+                   reply_to_message_id=int(replied_to) if replied_to is not None else None)
 
 
 def permalink_key(url: str):

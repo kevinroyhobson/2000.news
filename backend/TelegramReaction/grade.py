@@ -17,7 +17,6 @@ import html
 import os
 
 import boto3
-from boto3.dynamodb.conditions import Key
 
 from lib.curation import (
     TABLE_NAME,
@@ -26,11 +25,11 @@ from lib.curation import (
     gen_rationale,
     rebuild_exemplar_cache,
 )
+from lib.sent_headlines import find_post, record_rationale_reply
 from lib.telegram import TelegramError, send_message
 from TelegramReaction import reactions
 
 SENT_TABLE = os.environ.get("SENT_TABLE", "TelegramSentHeadlines")
-MESSAGE_INDEX = "MessageIdIndex"
 
 # Marks grades this handler wrote, so an undo can't wipe a CLI grade.
 GRADE_SOURCE = "telegram-reaction"
@@ -53,7 +52,7 @@ def handler(event, context):
     if not reaction:
         return
 
-    sent = _lookup_sent(reaction)
+    sent = find_post(_sent_table, reaction.chat_id, reaction.message_id)
     if not sent:
         print(f"No posted headline for message {reaction.message_id} "
               f"in chat {reaction.chat_id}; ignoring.")
@@ -103,7 +102,9 @@ def _grade(item: dict, sent: dict, reaction: reactions.Reaction, update_id: int)
             print(f"Not grading {headline_id}: a newer reaction already applied.")
             return
         print(f"Graded {headline_id} as {reaction.grade} from a Telegram reaction.")
-        _reply(reaction, _grade_reply(reaction.grade, rationale))
+        message = _reply(reaction, grade_reply(reaction.grade, rationale))
+        if message and rationale:
+            record_rationale_reply(_sent_table, headline_id, message)
 
     # Replies go out before the rebuild: whoever tapped the emoji is waiting on
     # them, and the rebuild is slow.
@@ -130,7 +131,7 @@ def _refresh_exemplars() -> None:
     print(f"Exemplar cache refreshed ({count} entries).")
 
 
-def _grade_reply(grade: str, rationale: str) -> str:
+def grade_reply(grade: str, rationale: str) -> str:
     text = GRADE_REPLY[grade]
     if rationale:
         # parse_mode=HTML on a text body only needs &, < and > escaped; leaving
@@ -139,24 +140,14 @@ def _grade_reply(grade: str, rationale: str) -> str:
     return text
 
 
-def _reply(reaction: reactions.Reaction, text: str) -> None:
+def _reply(reaction: reactions.Reaction, text: str):
+    """The sent Message, or None if the reply failed."""
     try:
-        send_message(reaction.chat_id, text, reply_to_message_id=reaction.message_id)
+        return send_message(reaction.chat_id, text, reply_to_message_id=reaction.message_id)
     except TelegramError as e:
         # The grade is already written; a failed reply isn't worth a retry.
         print(f"Reply to message {reaction.message_id} failed ({e}).")
-
-
-def _lookup_sent(reaction: reactions.Reaction):
-    """Find the posted-headline record behind a reacted-to message."""
-    resp = _sent_table.query(
-        IndexName=MESSAGE_INDEX,
-        KeyConditionExpression=Key("MessageId").eq(reaction.message_id),
-    )
-    for item in resp.get("Items", []):
-        if int(item.get("ChatId", 0)) == reaction.chat_id:
-            return item
-    return None
+        return None
 
 
 def _load_headline(year_month_day: str, headline_id: str) -> dict:
