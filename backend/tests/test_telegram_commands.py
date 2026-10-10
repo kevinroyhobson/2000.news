@@ -25,6 +25,12 @@ def _post(text, chat=None, key="channel_post"):
     }
 
 
+def _reply(text, to_message_id=41):
+    update = _post(text)
+    update["channel_post"]["reply_to_message"] = {"message_id": to_message_id}
+    return update
+
+
 def test_bare_url_is_a_url_request():
     request = commands.parse(_post("  https://example.com/story?x=1\n"), CHANNEL)
     assert request.kind == "url"
@@ -94,3 +100,19 @@ def test_permalink_tolerates_what_a_share_sheet_adds():
 def test_site_link_that_names_no_headline_is_not_a_permalink():
     assert commands.permalink_key("https://www.2000.news/20261008") is None
     assert commands.permalink_key("https://www.2000.news.evil.com/20261008/ccc10cac") is None
+
+
+def test_reply_is_a_note_on_the_post_it_replies_to():
+    request = commands.parse(_reply("  also it's a Dr. Seuss reference  "), CHANNEL)
+    assert request.kind == "reply"
+    assert request.text == "also it's a Dr. Seuss reference"
+    assert (request.message_id, request.reply_to_message_id) == (42, 41)
+
+
+def test_commands_posted_as_replies_are_still_commands():
+    assert commands.parse(_reply("https://example.com/story"), CHANNEL).kind == "url"
+    assert commands.parse(_reply("/scoop taylor swift"), CHANNEL).kind == "search"
+
+
+def test_reply_without_text_is_ignored():
+    assert commands.parse(_reply(""), CHANNEL) is None

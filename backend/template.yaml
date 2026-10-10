@@ -81,6 +81,8 @@ Resources:
           AttributeType: S
         - AttributeName: MessageId
           AttributeType: N
+        - AttributeName: RationaleMessageId
+          AttributeType: N
       KeySchema:
         - AttributeName: HeadlineId
           KeyType: HASH
@@ -90,6 +92,14 @@ Resources:
         - IndexName: MessageIdIndex
           KeySchema:
             - AttributeName: MessageId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        # Same, for a reply to the bot's rationale under a post, which
+        # TelegramRationaleRefine maps back to the headline it explains.
+        - IndexName: RationaleMessageIdIndex
+          KeySchema:
+            - AttributeName: RationaleMessageId
               KeyType: HASH
           Projection:
             ProjectionType: ALL
@@ -347,9 +357,10 @@ Resources:
 
   # Telegram's webhook target. Authenticates the secret token and hands the
   # update off asynchronously: emoji reactions to the grader, posted
-  # permalinks to the reposter, channel posts that ask for a story to the
-  # scoop worker. Grading and scooping take model calls, far longer than
-  # Telegram will wait before retrying the delivery.
+  # permalinks to the reposter, replies to the rationale rewriter, channel
+  # posts that ask for a story to the scoop worker. Grading, rewriting and
+  # scooping take model calls, far longer than Telegram will wait before
+  # retrying the delivery.
   TelegramWebhook:
     Type: AWS::Serverless::Function
     Properties:
@@ -361,6 +372,7 @@ Resources:
         Variables:
           REACTION_FUNCTION_NAME: !Ref TelegramReactionGrade
           PERMALINK_FUNCTION_NAME: !Ref TelegramPermalinkPost
+          REFINE_FUNCTION_NAME: !Ref TelegramRationaleRefine
           SCOOP_FUNCTION_NAME: !Ref TelegramScoop
           TELEGRAM_CHAT_ID: "@twothousanddotnews"
       Events:
@@ -374,6 +386,8 @@ Resources:
             FunctionName: !Ref TelegramReactionGrade
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramPermalinkPost
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TelegramRationaleRefine
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramScoop
         - SSMParameterReadPolicy:
@@ -390,6 +404,27 @@ Resources:
       Runtime: python3.14
       MemorySize: 1024
       Timeout: 300
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TelegramSentHeadlines
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubvertedHeadlines
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
+
+  # Rewrites an outstanding headline's rationale around a note posted as a
+  # reply to that rationale (or to the headline), then rebuilds the judge's
+  # exemplar cache. Timeout matches the grader's, which does the same work.
+  TelegramRationaleRefine:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TelegramReaction/refine.handler
+      Runtime: python3.14
+      MemorySize: 1024
+      Timeout: 300
+      Environment:
+        Variables:
+          TELEGRAM_CHAT_ID: "@twothousanddotnews"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TelegramSentHeadlines
