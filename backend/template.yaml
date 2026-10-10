@@ -422,6 +422,10 @@ Resources:
       Runtime: python3.14
       MemorySize: 1024
       Timeout: 300
+      # A retry would apply the same note to the already-rewritten rationale
+      # and reply twice. A failed rewrite is redone by replying again.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
       Environment:
         Variables:
           TELEGRAM_CHAT_ID: "@twothousanddotnews"
