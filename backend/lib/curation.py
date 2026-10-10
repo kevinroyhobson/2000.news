@@ -249,6 +249,9 @@ def rebuild_exemplar_cache(table) -> int:
     """
     items = []
     kwargs = {
+        # Strongly consistent, because callers rebuild right after writing
+        # the grade or rationale the cache has to pick up.
+        'ConsistentRead': True,
         'FilterExpression': Attr('Grade').eq('outstanding'),
         'ProjectionExpression': '#h, OriginalHeadline, Rationale, GradedAt, #r, CrossDayRank',
         'ExpressionAttributeNames': {'#h': 'Headline', '#r': 'Rank'},
