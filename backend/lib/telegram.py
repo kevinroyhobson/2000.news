@@ -4,6 +4,7 @@ Shared by the hourly headline poster (TelegramAlert) and the reaction grader
 (TelegramReaction). stdlib-only, so the webhook stays cheap to cold-start.
 """
 
+import html
 import json
 import urllib.error
 import urllib.request
@@ -54,4 +55,21 @@ def send_message(chat_id, text: str, reply_to_message_id: int = None, timeout: i
             "allow_sending_without_reply": True,
         }
     return call("sendMessage", payload, timeout=timeout)
+
+
+def source_lines(sources: list) -> str:
+    """One '(Real headline, source)' line per source, each headline linked
+    to its article. sources are dicts with Title, Url and Source."""
+    return "\n".join(line for line in map(_attribution, sources) if line)
+
+
+def _attribution(source: dict) -> str:
+    original = html.escape((source.get("Title") or "").strip())
+    if not original:
+        return ""
+    url = (source.get("Url") or "").strip()
+    if url:
+        original = f'<a href="{html.escape(url, quote=True)}">{original}</a>'
+    source_id = html.escape((source.get("Source") or "").strip())
+    return f"({original}, {source_id})" if source_id else f"({original})"
 
