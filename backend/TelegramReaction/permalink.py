@@ -16,7 +16,7 @@ import boto3
 
 from lib.curation import TABLE_NAME
 from lib.sent_headlines import record_post
-from lib.telegram import send_message
+from lib.telegram import send_message, source_lines
 from TelegramScoop import commands
 
 CHANNEL = os.environ["TELEGRAM_CHAT_ID"]
@@ -25,6 +25,7 @@ SENT_TABLE = os.environ.get("SENT_TABLE", "TelegramSentHeadlines")
 _dynamo = boto3.resource("dynamodb")
 _sent_table = _dynamo.Table(SENT_TABLE)
 _headlines_table = _dynamo.Table(TABLE_NAME)
+_stories_table = _dynamo.Table("Stories")
 
 
 def handler(event, context):
@@ -47,23 +48,44 @@ def handler(event, context):
                      reply_to_message_id=original_post)
         return
 
-    message = send_message(request.chat_id, format_headline(headline),
+    message = send_message(request.chat_id, format_headline(headline, _story_for(headline)),
                            reply_to_message_id=request.message_id)
     record_post(_sent_table, headline, message)
     print(f"Posted {year_month_day}/{headline_id} for grading as message "
           f"{message.get('message_id')}.")
 
 
-def format_headline(headline: dict) -> str:
-    """The headline, the real one(s) it riffs on, and any grade it already has."""
+def format_headline(headline: dict, story: dict) -> str:
+    """The headline, the real one(s) it riffs on linked to their articles, and
+    any grade it already has."""
     text = html.escape(headline.get("Headline", "").strip(), quote=False)
-    sources = headline.get("SourceHeadlines") or [headline.get("OriginalHeadline", "")]
-    originals = " + ".join(source.strip() for source in sources if source)
-    if originals:
-        text += f"\n\n({html.escape(originals, quote=False)})"
+    attributions = source_lines(_sources(headline, story))
+    if attributions:
+        text += f"\n\n{attributions}"
     if headline.get("Grade"):
         text += f"\n\nCurrently graded <b>{headline['Grade']}</b>."
     return text
+
+
+def _story_for(headline: dict) -> dict:
+    """The Stories row a headline was written from. Its key is the headline's
+    day and its OriginalHeadline, which is the story's Title."""
+    title = headline.get("OriginalHeadline")
+    if not title:
+        return {}
+    key = {"YearMonthDay": headline["YearMonthDay"], "Title": title}
+    return _stories_table.get_item(Key=key).get("Item") or {}
+
+
+def _sources(headline: dict, story: dict) -> list:
+    """Each real story with its link and outlet, or just the real headlines
+    when the story row is gone."""
+    if story.get("SourceStories"):
+        return story["SourceStories"]
+    if story:
+        return [{"Title": story["Title"], "Url": story.get("Url"), "Source": story.get("Source")}]
+    titles = headline.get("SourceHeadlines") or [headline.get("OriginalHeadline")]
+    return [{"Title": title} for title in titles]
 
 
 def _original_post(headline_id: str, chat_id: int):

@@ -416,6 +416,8 @@ Resources:
             TableName: !Ref TelegramSentHeadlines
         - DynamoDBReadPolicy:
             TableName: !Ref SubvertedHeadlines
+        - DynamoDBReadPolicy:
+            TableName: !Ref Stories
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 

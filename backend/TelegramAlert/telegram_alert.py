@@ -26,7 +26,7 @@ import urllib.request
 import boto3
 
 from lib.sent_headlines import record_post
-from lib.telegram import TelegramError, send_message
+from lib.telegram import TelegramError, send_message, source_lines
 
 API_BASE = os.environ.get("API_BASE", "https://api.2000.news")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -106,19 +106,7 @@ def _format_message(story: dict) -> str:
         "Url": story.get("Url", ""),
         "Source": story.get("Source", ""),
     }]
-    attributions = [line for line in map(_attribution, sources) if line]
+    attributions = source_lines(sources)
     if attributions:
-        message += "\n\n" + "\n".join(attributions)
+        message += f"\n\n{attributions}"
     return message
-
-
-def _attribution(source: dict) -> str:
-    """'(Real headline, source)', with the headline linked to the article."""
-    original = html.escape((source.get("Title") or "").strip())
-    if not original:
-        return ""
-    url = (source.get("Url") or "").strip()
-    if url:
-        original = f'<a href="{html.escape(url, quote=True)}">{original}</a>'
-    source_id = html.escape((source.get("Source") or "").strip())
-    return f"({original}, {source_id})" if source_id else f"({original})"
