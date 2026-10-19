@@ -42,6 +42,8 @@ from the page's meta tags, and Claude picks the opening paragraphs out of the
 page text. A page with no image, no text, or a hostile status code gets a
 reply saying so instead of a story.
 
+`/scoop <url>` is the same as posting the link bare.
+
 nytimes.com links go through the Article Search API instead, since the pages
 serve a paywall stub. That needs a key from developer.nytimes.com at
 `/2000news/NYT_API_KEY` in SSM; without one, NYT links get the page treatment

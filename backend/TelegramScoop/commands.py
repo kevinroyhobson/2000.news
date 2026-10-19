@@ -6,6 +6,7 @@ Three requests are recognised, and only from the configured channel:
     https://www.2000.news/20261008/ccc10cac   a permalink: post that headline for grading
     https://example.com/some-article          any other bare URL: fetch that story
     /scoop <topic>                            search the news for a topic
+    /scoop <url>                              the same as posting the URL bare
 
 Everything else posted to the channel (the hourly headlines, replies, chat)
 is ignored.
@@ -55,14 +56,21 @@ def permalink_key(url: str):
 
 
 def _classify(text: str):
+    command = _COMMAND.match(text)
+    if not command:
+        return _classify_link(text)
+    argument = (command.group(1) or "").strip()
+    if not argument:
+        return "usage", ""
+    kind, link = _classify_link(argument)
+    return (kind, link) if kind else ("search", argument)
+
+
+def _classify_link(text: str):
     if permalink_key(text):
         return "permalink", text
     if _URL_ONLY.match(text):
         return "url", text
-    command = _COMMAND.match(text)
-    if command:
-        query = (command.group(1) or "").strip()
-        return ("search", query) if query else ("usage", "")
     return None, ""
 
 
