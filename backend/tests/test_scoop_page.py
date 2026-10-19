@@ -61,3 +61,52 @@ def test_visible_text_prefers_the_article_and_drops_scripts_and_styles():
 def test_visible_text_uses_the_whole_page_without_an_article_element():
     text = page.visible_text("<body><p>One</p><script>x</script><p>Two</p></body>")
     assert text == "One\nTwo"
+
+
+PAGE_URL = "https://www.example.com/sports/stephen-a-smith"
+
+
+def test_image_prefers_the_social_card():
+    assert page.image(HTML, PAGE_URL) == "https://cdn.example.com/hero.jpg"
+
+
+def test_image_reads_itemprop_meta_and_resolves_relative_urls():
+    html = '<meta itemprop="image" content="/img/lead.jpg">'
+    assert page.image(html, PAGE_URL) == "https://www.example.com/img/lead.jpg"
+
+
+def test_image_falls_back_to_the_articles_structured_data():
+    html = """<script type="application/ld+json">
+    {"@context": "https://schema.org", "@graph": [
+      {"@type": "Organization", "logo": {"url": "https://cdn.example.com/logo.png"},
+       "image": "https://cdn.example.com/org.jpg"},
+      {"@type": "NewsArticle", "headline": "x",
+       "image": [{"@type": "ImageObject", "url": "https://cdn.example.com/smith.jpg"}]}
+    ]}</script>"""
+    assert page.image(html, PAGE_URL) == "https://cdn.example.com/smith.jpg"
+
+
+def test_image_skips_broken_structured_data():
+    html = """<script type="application/ld+json">{not json</script>
+    <link rel="image_src" href="https://cdn.example.com/linked.jpg">"""
+    assert page.image(html, PAGE_URL) == "https://cdn.example.com/linked.jpg"
+
+
+def test_image_falls_back_to_the_first_photo_in_the_article():
+    html = """<header><img src="/site-logo.png"></header>
+    <article>
+      <img src="https://cdn.example.com/byline-avatar.jpg">
+      <img src="https://cdn.example.com/tiny.jpg" width="40" height="40">
+      <img src="data:image/gif;base64,R0lGOD" data-src="https://cdn.example.com/smith.jpg?w=1200">
+    </article>"""
+    assert page.image(html, PAGE_URL) == "https://cdn.example.com/smith.jpg?w=1200"
+
+
+def test_image_reads_srcset_when_there_is_no_src():
+    html = '<img srcset="https://cdn.example.com/a-640.jpg 640w, https://cdn.example.com/a-1280.jpg 1280w">'
+    assert page.image(html, PAGE_URL) == "https://cdn.example.com/a-640.jpg"
+
+
+def test_image_is_none_when_the_page_has_no_photo():
+    html = '<body><img src="/logo.svg"><img src="/pixel.gif" width="1" height="1"><p>Text</p></body>'
+    assert page.image(html, PAGE_URL) is None
