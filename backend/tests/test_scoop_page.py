@@ -110,3 +110,29 @@ def test_image_reads_srcset_when_there_is_no_src():
 def test_image_is_none_when_the_page_has_no_photo():
     html = '<body><img src="/logo.svg"><img src="/pixel.gif" width="1" height="1"><p>Text</p></body>'
     assert page.image(html, PAGE_URL) is None
+
+
+def test_image_follows_a_json_ld_reference_to_an_image_elsewhere_in_the_graph():
+    html = """<script type="application/ld+json">
+    {"@graph": [
+      {"@type": "NewsArticle", "image": {"@id": "https://www.example.com/#primaryimage"}},
+      {"@type": "ImageObject", "@id": "https://www.example.com/#primaryimage",
+       "url": "https://cdn.example.com/primary.jpg"}
+    ]}</script>"""
+    assert page.image(html, PAGE_URL) == "https://cdn.example.com/primary.jpg"
+
+
+def test_image_tries_srcset_when_src_is_a_placeholder():
+    html = '<img src="data:image/gif;base64,R0lGOD" srcset="https://cdn.example.com/real-800.jpg 800w">'
+    assert page.image(html, PAGE_URL) == "https://cdn.example.com/real-800.jpg"
+
+
+def test_image_keeps_photos_whose_names_merely_contain_a_decoration_word():
+    for name in ("silicon-valley.jpg", "blanket-drive.jpg", "iconic-moment.jpg"):
+        html = f'<img src="https://cdn.example.com/{name}">'
+        assert page.image(html, PAGE_URL) == f"https://cdn.example.com/{name}"
+
+
+def test_image_reads_unquoted_attributes():
+    html = "<img src=/images/lead.jpg width=1200>"
+    assert page.image(html, PAGE_URL) == "https://www.example.com/images/lead.jpg"

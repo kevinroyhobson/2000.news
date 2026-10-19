@@ -46,7 +46,8 @@ def fetch_story(url: str) -> dict:
         story = _nyt_story(url)
         if story:
             return story
-    return _story_from_page(url, _download(url))
+    final_url, html = _download(url)
+    return _story_from_page(final_url, html)
 
 
 def _nyt_story(url: str):
@@ -57,7 +58,8 @@ def _nyt_story(url: str):
         return None
 
 
-def _download(url: str) -> str:
+def _download(url: str) -> tuple:
+    """The URL the page ended up at after redirects, and its HTML."""
     request = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
@@ -66,7 +68,7 @@ def _download(url: str) -> str:
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             charset = response.headers.get_content_charset() or "utf-8"
-            return response.read(MAX_PAGE_BYTES).decode(charset, errors="replace")
+            return response.geturl(), response.read(MAX_PAGE_BYTES).decode(charset, errors="replace")
     except urllib.error.HTTPError as e:
         raise ArticleError(f"the site answered HTTP {e.code}") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:

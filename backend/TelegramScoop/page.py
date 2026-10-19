@@ -8,7 +8,7 @@ import re
 from urllib.parse import urljoin
 
 _META_TAG = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
-_ATTRIBUTE = re.compile(r"""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+_ATTRIBUTE = re.compile(r"""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))""")
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 _ARTICLE = re.compile(r"<article\b.*?</article>", re.IGNORECASE | re.DOTALL)
 _INVISIBLE = re.compile(
@@ -22,7 +22,8 @@ _JSON_LD = re.compile(r"<script\b[^>]*application/ld\+json[^>]*>(.*?)</script\s*
 _LINK_TAG = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
 _IMG_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _IMG_SOURCES = ("data-src", "data-lazy-src", "data-original", "src")
-_DECORATION = re.compile(r"logo|avatar|icon|sprite|pixel|spacer|placeholder|blank", re.IGNORECASE)
+_DECORATION = re.compile(r"(?<![a-z])(logo|avatar|icon|sprite|pixel|spacer|placeholder|blank)s?(?![a-z])",
+                         re.IGNORECASE)
 _MIN_IMG_DIMENSION = 200
 
 
@@ -74,20 +75,24 @@ def visible_text(html: str, max_chars: int = 15000) -> str:
 
 
 def _attributes(tag: str) -> dict:
-    return {key.lower(): html_lib.unescape(double or single)
-            for key, double, single in _ATTRIBUTE.findall(tag)}
+    return {key.lower(): html_lib.unescape(double or single or bare)
+            for key, double, single, bare in _ATTRIBUTE.findall(tag)}
 
 
 def _json_ld_image(html: str):
-    for block in _JSON_LD.findall(html):
-        try:
-            data = json.loads(block)
-        except ValueError:
-            continue
-        for node in _json_ld_nodes(data):
-            if _is_article(node) and (url := _image_url(node.get("image"))):
-                return url
+    nodes = [node for block in _JSON_LD.findall(html) for node in _json_ld_nodes(_parse_json(block))]
+    nodes_by_id = {node["@id"]: node for node in nodes if isinstance(node.get("@id"), str)}
+    for node in nodes:
+        if _is_article(node) and (url := _image_url(node.get("image"), nodes_by_id)):
+            return url
     return None
+
+
+def _parse_json(text: str):
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
 
 
 def _json_ld_nodes(data):
@@ -105,14 +110,17 @@ def _is_article(node: dict) -> bool:
     return any(isinstance(t, str) and (t.endswith("Article") or t == "BlogPosting") for t in types)
 
 
-def _image_url(value):
-    """schema.org lets image be a URL, an ImageObject, or a list of either."""
+def _image_url(value, nodes_by_id: dict):
+    """schema.org lets image be a URL, an ImageObject, a reference to one
+    elsewhere in the graph by @id, or a list of any of those."""
     if isinstance(value, str):
         return value.strip() or None
     if isinstance(value, list):
-        return next((url for url in map(_image_url, value) if url), None)
+        return next((url for url in (_image_url(item, nodes_by_id) for item in value) if url), None)
     if isinstance(value, dict):
-        return _image_url(value.get("url") or value.get("contentUrl"))
+        referenced = nodes_by_id.get(value.get("@id"), {})
+        return _image_url(value.get("url") or value.get("contentUrl")
+                          or referenced.get("url") or referenced.get("contentUrl"), nodes_by_id)
     return None
 
 
@@ -134,14 +142,22 @@ def _first_photo(html: str):
 
 
 def _photo_url(attributes: dict):
-    url = next((attributes[name] for name in _IMG_SOURCES if attributes.get(name)), None)
-    if not url and attributes.get("srcset"):
-        url = attributes["srcset"].split(",")[0].split()[0]
-    if not url or url.startswith("data:") or url.lower().split("?")[0].endswith((".svg", ".gif")):
+    if _too_small(attributes):
         return None
-    if _DECORATION.search(url) or _too_small(attributes):
-        return None
-    return url
+    return next((url for url in _img_candidates(attributes) if _looks_like_photo(url)), None)
+
+
+def _img_candidates(attributes: dict):
+    yield from (attributes[name] for name in _IMG_SOURCES if attributes.get(name))
+    first_srcset_entry = attributes.get("srcset", "").split(",")[0].split()
+    if first_srcset_entry:
+        yield first_srcset_entry[0]
+
+
+def _looks_like_photo(url: str) -> bool:
+    path = url.lower().split("?")[0]
+    return not (path.startswith("data:") or path.endswith((".svg", ".gif"))
+                or _DECORATION.search(path))
 
 
 def _too_small(attributes: dict) -> bool:
