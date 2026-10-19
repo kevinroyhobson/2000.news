@@ -132,20 +132,20 @@ def test_seen_as_top_picks_lowest_unseen_rank():
 def test_outstanding_headline_leads_over_higher_ranked_ungraded():
     get = _load_get_module()
     headlines = [
-        {**_headline("ungraded-cross-1", 1), "CrossDayRank": 1},
-        {**_headline("solid-cross-5", 5, grade="solid"), "CrossDayRank": 5},
-        {**_headline("outstanding-cross-30", 30, grade="outstanding"), "CrossDayRank": 30},
+        _headline("ungraded-rank-1", 1),
+        _headline("solid-rank-5", 5, grade="solid"),
+        _headline("outstanding-rank-30", 30, grade="outstanding"),
     ]
 
     selected = get.select_headlines(
         headlines,
         requested_headline_id="",
         search_query="",
-        rank_field="CrossDayRank",
+        rank_field="Rank",
         seen_as_top=set(),
     )
 
-    assert selected[0]["HeadlineId"] == "outstanding-cross-30"
+    assert selected[0]["HeadlineId"] == "outstanding-rank-30"
 
 
 def test_seen_outstanding_headline_yields_lead_to_next_best():
