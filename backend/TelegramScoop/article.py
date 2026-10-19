@@ -2,9 +2,10 @@
 
 nytimes.com links go through the Article Search API (lib/nyt_client), since
 the pages themselves serve a paywall stub. Everything else is fetched and
-read: the image, title and dates come from the page's meta tags, and a model
-picks the article's opening paragraphs out of the visible text, which is the
-part nav menus, cookie banners and related-story links make unreliable to
+read: the title and dates come from the page's meta tags, the image from
+the same or, failing that, the page's structured data and <img> tags, and a
+model picks the article's opening paragraphs out of the visible text, which is
+the part nav menus, cookie banners and related-story links make unreliable to
 regex.
 """
 
@@ -45,7 +46,8 @@ def fetch_story(url: str) -> dict:
         story = _nyt_story(url)
         if story:
             return story
-    return _story_from_page(url, _download(url))
+    final_url, html = _download(url)
+    return _story_from_page(final_url, html)
 
 
 def _nyt_story(url: str):
@@ -56,7 +58,8 @@ def _nyt_story(url: str):
         return None
 
 
-def _download(url: str) -> str:
+def _download(url: str) -> tuple:
+    """The URL the page ended up at after redirects, and its HTML."""
     request = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
@@ -65,7 +68,7 @@ def _download(url: str) -> str:
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             charset = response.headers.get_content_charset() or "utf-8"
-            return response.read(MAX_PAGE_BYTES).decode(charset, errors="replace")
+            return response.geturl(), response.read(MAX_PAGE_BYTES).decode(charset, errors="replace")
     except urllib.error.HTTPError as e:
         raise ArticleError(f"the site answered HTTP {e.code}") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -73,9 +76,9 @@ def _download(url: str) -> str:
 
 
 def _story_from_page(url: str, html: str) -> dict:
-    image_url = page.meta(html, "og:image", "og:image:secure_url", "twitter:image")
+    image_url = page.image(html, url)
     if not image_url:
-        raise ArticleError("the page has no og:image, and every story needs a picture")
+        raise ArticleError("couldn't find a picture on the page, and every story needs one")
 
     extracted = _extract_article(page.visible_text(html))
     title = page.meta(html, "og:title", "twitter:title") or extracted.get("headline") or page.title(html)
