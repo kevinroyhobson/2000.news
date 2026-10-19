@@ -153,7 +153,7 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     Ensures unique StoryIds and favors higher-ranked headlines.
 
     If search_query is provided, matching headlines are floated to the top in random order.
-    If seen_as_top is provided, the #1 pick is the highest-ranked unseen headline.
+    The #1 pick is the best unseen headline: outstanding > solid > ungraded, then by rank.
 
     Pool sizes: 16, 16, 32, 64 - pick one randomly from each pool, ensuring unique stories.
     rank_field: 'Rank' for daily view, 'CrossDayRank' for /today cross-day view.
@@ -170,7 +170,6 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     def get_rank(h):
         return h.get(rank_field) or (max_rank + 1)
 
-    ranked_headlines = sorted(headlines, key=lambda h: (get_rank(h), _grade_tier(h)))
     sorted_headlines = sorted(headlines, key=lambda h: (_grade_tier(h), get_rank(h)))
 
     result = []
@@ -185,9 +184,9 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
                 picked_stories |= _story_keys(h)
                 break
 
-    # If no requested headline and no search query, pick highest-ranked unseen headline for #1
+    # If no requested headline and no search query, pick the best unseen headline for #1
     if not result and not search_query:
-        for h in ranked_headlines:
+        for h in sorted_headlines:
             if (h['HeadlineId'] not in seen_as_top
                     and picked_stories.isdisjoint(_story_keys(h))
                     and not _is_filtered_grade(h)):
