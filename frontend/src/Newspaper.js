@@ -6,6 +6,7 @@ import classNames from 'classnames';
 
 import Grid from '@mui/material/Grid';
 import Box from '@mui/material/Box';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 import './Newspaper.css'
 import Story from './Story';
@@ -168,8 +169,12 @@ export default function Newspaper() {
   return (
     <div className={classNames('newspaper', {'closed': stories.length === 0})}>
 
-      <div className='close-box' onClick={() => handleClosePaper()}>
-      </div>
+      <button className='close-box'
+              title='Get another paper'
+              aria-label='Get another paper'
+              onClick={() => handleClosePaper()}>
+        <RefreshIcon className='close-box-icon'/>
+      </button>
 
       <Box className='paper-name'>
         {paperName}

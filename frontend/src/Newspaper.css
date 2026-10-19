@@ -26,17 +26,79 @@ div.newspaper {
     }
 }
 
-div.close-box {
+@keyframes nudge {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+button.close-box {
     position: absolute;
     left: 5px;
     top: 5px;
 
     width: 25px;
     height: 25px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
     background-color: white;
+    color: black;
     border: 1px solid black;
 
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+button.close-box::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+}
+
+button.close-box:active,
+button.close-box:focus-visible {
+    background-color: black;
+    color: white;
+}
+
+button.close-box .close-box-icon {
+    font-size: 19px;
+    transition: transform 0.4s;
+    animation: nudge 0.8s ease-in-out 2.2s;
+}
+
+@media(hover: hover) {
+    button.close-box:hover {
+        background-color: black;
+        color: white;
+    }
+
+    button.close-box:hover .close-box-icon {
+        transform: rotate(180deg);
+    }
+}
+
+@media(prefers-reduced-motion: reduce) {
+    button.close-box .close-box-icon {
+        animation: none;
+    }
+}
+
+@media(max-width: 600px) {
+    button.close-box {
+        width: 30px;
+        height: 30px;
+    }
+
+    button.close-box .close-box-icon {
+        font-size: 23px;
+    }
 }
 
 div.newspaper.closed {
@@ -52,7 +114,7 @@ div.paper-name {
 @media(max-width: 600px) {
     div.paper-name {
         font-size: 28px;
-        padding: 0 30px;
+        padding: 0 44px;
     }
 }
 
