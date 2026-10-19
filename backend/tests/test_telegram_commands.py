@@ -47,6 +47,16 @@ def test_scoop_addressed_to_the_bot_still_works():
     assert (request.kind, request.text) == ("search", "climate summit")
 
 
+def test_scoop_with_a_url_fetches_the_url_instead_of_searching_for_it():
+    request = commands.parse(_post("/scoop https://example.com/stephen-a-smith"), CHANNEL)
+    assert (request.kind, request.text) == ("url", "https://example.com/stephen-a-smith")
+
+
+def test_scoop_with_a_permalink_grades_it():
+    request = commands.parse(_post("/scoop https://www.2000.news/20261008/ccc10cac"), CHANNEL)
+    assert request.kind == "permalink"
+
+
 def test_bare_scoop_asks_for_usage():
     request = commands.parse(_post("/scoop"), CHANNEL)
     assert request.kind == "usage"
