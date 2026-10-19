@@ -129,6 +129,44 @@ def test_seen_as_top_picks_lowest_unseen_rank():
     assert selected[0]["HeadlineId"] == "rank-2"
 
 
+def test_outstanding_headline_leads_over_higher_ranked_ungraded():
+    get = _load_get_module()
+    headlines = [
+        _headline("ungraded-rank-1", 1),
+        _headline("solid-rank-5", 5, grade="solid"),
+        _headline("outstanding-rank-30", 30, grade="outstanding"),
+    ]
+
+    selected = get.select_headlines(
+        headlines,
+        requested_headline_id="",
+        search_query="",
+        rank_field="Rank",
+        seen_as_top=set(),
+    )
+
+    assert selected[0]["HeadlineId"] == "outstanding-rank-30"
+
+
+def test_seen_outstanding_headline_yields_lead_to_next_best():
+    get = _load_get_module()
+    headlines = [
+        _headline("ungraded-rank-1", 1),
+        _headline("solid-rank-5", 5, grade="solid"),
+        _headline("outstanding-rank-30", 30, grade="outstanding"),
+    ]
+
+    selected = get.select_headlines(
+        headlines,
+        requested_headline_id="",
+        search_query="",
+        rank_field="Rank",
+        seen_as_top={"outstanding-rank-30"},
+    )
+
+    assert selected[0]["HeadlineId"] == "solid-rank-5"
+
+
 def test_seen_as_top_uses_cross_day_rank_when_supplied():
     get = _load_get_module()
     headlines = [
