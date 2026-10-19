@@ -26,17 +26,38 @@ div.newspaper {
     }
 }
 
-div.close-box {
+button.close-box {
     position: absolute;
     left: 5px;
     top: 5px;
 
     width: 25px;
     height: 25px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
     background-color: white;
+    color: black;
     border: 1px solid black;
 
     cursor: pointer;
+}
+
+button.close-box:hover,
+button.close-box:focus-visible {
+    background-color: black;
+    color: white;
+}
+
+.close-box-icon {
+    font-size: 19px !important;
+    transition: transform 0.4s;
+}
+
+button.close-box:hover .close-box-icon {
+    transform: rotate(180deg);
 }
 
 div.newspaper.closed {
