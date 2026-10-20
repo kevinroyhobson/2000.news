@@ -174,7 +174,7 @@ div.headline {
 
 img {
     width: 100%;
-    filter: grayscale(90%);
+    filter: grayscale(70%);
 }
 
 img.headline-image {
