@@ -4,8 +4,8 @@ Telegram expects a fast 200 and retries anything else, so this function only
 authenticates the request and hands the update to a worker asynchronously:
 emoji reactions go to the grader (TelegramReaction), a posted 2000.news
 permalink to the worker that reposts that headline for grading, replies to the
-worker that rewrites a rationale around them, and channel posts that ask for a
-story to the scoop worker (TelegramScoop). Grading, rewriting and scooping
+worker that edits a rationale the way they ask, and channel posts that ask for
+a story to the scoop worker (TelegramScoop). Grading, editing and scooping
 take model calls, far longer than a webhook should hold open.
 
 Authentication is the secret token Telegram echoes back in a header (set with

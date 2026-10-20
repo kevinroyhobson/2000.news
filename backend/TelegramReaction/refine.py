@@ -1,11 +1,12 @@
-"""Rewrite an outstanding headline's rationale from a reply in the channel.
+"""Edit an outstanding headline's rationale from a reply in the channel.
 
 Invoked asynchronously by webhook.py for replies posted in the channel. A
-reply to the bot's rationale, or to the headline post itself, is a note on
-what makes the headline land ("also, it's a Dr. Seuss reference"). Claude
-rewrites the rationale around that note, the rewrite replaces the headline's
-rationale (and so the judge's exemplar for it), and the bot replies with it.
-Replying to that rewrite refines it again.
+reply to the bot's rationale, or to the headline post itself, is a plain-English
+instruction for improving it ("mention that it's a Dr. Seuss reference", "drop
+the bit about golf"). Claude edits the current rationale the way the reply
+asks, the edit replaces the headline's rationale (and so the judge's exemplar
+for it), and the bot replies with it. Replying to that edit refines it again,
+so a rationale gets better over a back-and-forth.
 
 Replies to anything else are ignored.
 """
@@ -50,7 +51,7 @@ def handler(event, context):
         Key={"YearMonthDay": year_month_day, "HeadlineId": headline_id}
     ).get("Item") or {}
     if headline.get("Grade") != "outstanding":
-        send_message(request.chat_id, "Only outstanding picks have a rationale to rewrite.",
+        send_message(request.chat_id, "Only outstanding picks have a rationale to edit.",
                      reply_to_message_id=request.message_id)
         return
 
@@ -60,9 +61,9 @@ def handler(event, context):
         on_refusal=lambda e: print(f"[refine] {e} — falling back."),
     )
     if not set_rationale(_headlines_table, year_month_day, headline_id, rationale):
-        print(f"Not rewriting {headline_id}'s rationale: it's no longer outstanding.")
+        print(f"Not editing {headline_id}'s rationale: it's no longer outstanding.")
         return
-    print(f"Rewrote {headline_id}'s rationale from message {request.message_id}.")
+    print(f"Edited {headline_id}'s rationale from message {request.message_id}.")
 
     message = send_message(request.chat_id, grade_reply("outstanding", rationale),
                            reply_to_message_id=request.message_id)

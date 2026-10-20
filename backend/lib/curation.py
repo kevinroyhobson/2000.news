@@ -54,13 +54,15 @@ Given a satirical headline (and the original news headline it riffs on), write O
 
 Reply with ONLY the explanation. No preamble, no quotes around it."""
 
-REFINE_SYSTEM = f"""You revise a comedy editor's brief annotation explaining why a satirical news headline works.
+REFINE_SYSTEM = f"""You edit a comedy editor's brief annotation explaining why a satirical news headline works.
 
-You get the satirical headline, the original news headline it riffs on, the current explanation, and a note from the editor about what makes the headline land for them. Rewrite the explanation so the editor's point is part of why the headline works, woven into the reasoning rather than tacked onto the end. Keep whatever in the current explanation still holds, and drop anything the note contradicts. Aim for one sentence; use two only if the note needs the room. Stay under 50 words.
+You get the satirical headline, the original news headline it riffs on, the current explanation, and the editor's instruction for improving it, in plain English. The instruction might ask you to add a point, cut something, change the emphasis, fix a misreading, or tighten the wording. Apply it to the current explanation.
+
+The current explanation is usually good already; the job is to make it better, not to start over. Keep whatever the instruction doesn't touch as close to its current wording as you can. When the instruction adds a point, work it into the reasoning rather than tacking it onto the end. When it asks you to drop something, drop it cleanly. The instruction is never the new explanation itself, even when it's phrased as a statement. Stay brief: a sentence or two, under 50 words, unless the instruction asks for a different length.
 
 {RATIONALE_STYLE_EXAMPLES}
 
-Reply with ONLY the rewritten explanation. No preamble, no quotes around it."""
+Reply with ONLY the edited explanation. No preamble, no quotes around it."""
 
 
 _anthropic_client = None
@@ -127,11 +129,11 @@ def gen_rationale(headline: str, original: str, on_refusal=None) -> str:
     return _ask(RATIONALE_SYSTEM, f'SATIRICAL: "{headline}"\nORIGINAL: "{original}"', on_refusal)
 
 
-def refine_rationale(headline: str, original: str, rationale: str, note: str,
+def refine_rationale(headline: str, original: str, rationale: str, instruction: str,
                      on_refusal=None) -> str:
-    """Rewrite a rationale around the editor's note on what makes it work."""
+    """Edit a rationale the way the editor's plain-English instruction asks."""
     content = (f'SATIRICAL: "{headline}"\nORIGINAL: "{original}"\n'
-               f'CURRENT EXPLANATION: "{rationale}"\nEDITOR\'S NOTE: "{note}"')
+               f'CURRENT EXPLANATION: "{rationale}"\nEDITOR\'S INSTRUCTION: "{instruction}"')
     return _ask(REFINE_SYSTEM, content, on_refusal)
 
 
