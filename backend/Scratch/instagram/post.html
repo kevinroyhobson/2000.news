@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+$base_css
+
+.newspaper {
+  position: absolute;
+  top: 72px;
+  left: 44px;
+  right: 44px;
+  bottom: 110px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: #e8e8e8;
+}
+
+.close-box {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 38px;
+  height: 38px;
+  background-color: white;
+  border: 2px solid black;
+}
+
+.paper-name {
+  padding: 0 64px;
+  font-size: 58px;
+  text-align: center;
+  border-top: 2px solid black;
+}
+
+.headline {
+  margin: 12px 0 24px;
+  padding: 10px 28px 0;
+  font-size: 96px;
+  line-height: 1.1;
+  text-align: center;
+  border-top: 2px solid black;
+}
+
+.stories {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+  margin: 0 16px;
+  font-size: 42px;
+  text-align: center;
+}
+
+.story.side {
+  flex: 0 0 36%;
+}
+
+.story.main {
+  flex: 1;
+}
+
+.story .title {
+  padding: 12px 0 14px;
+}
+
+.story img {
+  display: block;
+  width: 100%;
+  max-height: 440px;
+  object-fit: cover;
+  filter: grayscale(90%);
+}
+</style>
+</head>
+<body>
+<div class="nyc-background">
+  <div class="newspaper">
+    <div class="close-box"></div>
+    <div class="paper-name">$paper_name</div>
+    <div class="headline">$headline</div>
+    <div class="stories">
+      $columns
+    </div>
+  </div>
+  <div class="credit">2000.news</div>
+</div>
+<script>
+  const headline = document.querySelector('.headline');
+  let fontSize = 96;
+  while (headline.offsetHeight > 420 && fontSize > 48) {
+    fontSize -= 2;
+    headline.style.fontSize = fontSize + 'px';
+  }
+</script>
+</body>
+</html>

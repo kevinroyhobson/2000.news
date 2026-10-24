@@ -9,3 +9,6 @@ frontend/node_modules/*
 
 # personal grading datasets — kept locally, not committed
 backend/Scratch/grades.jsonl
+
+# rendered instagram images
+/instagram/
