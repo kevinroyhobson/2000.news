@@ -132,6 +132,7 @@ JUDGING CRITERIA:
 
 2. WORDPLAY & CRAFT
    - Clever alliteration or assonance that flows naturally when read aloud
+   - Runaway alliteration is craft, not padding: a headline that commits to one sound for far longer than any editor would allow, while still reading as coherent news with a real point, earns its length. Rank down only when the run collapses into word salad or sacrifices sense for sound.
    - Puns that actually work phonetically, not just visually — say it out loud in your head
    - Unexpected double meanings or semantic twists that reward a second reading
    - Rhythm and meter: headlines should feel punchy, like a good joke setup and punchline
@@ -178,6 +179,12 @@ EXAMPLES OF GREAT HEADLINES (calibrate your taste to this level):
 
 - "Fed Holds Interest Rates Steady Because Nobody Fucking Knows Anymore"
   Why it works: Flawless financial-wire syntax carrying a confession no institution would ever print. The "because" clause promises official rationale and delivers exhausted candor instead, with the swear placed for rhythm rather than shock. Works with zero knowledge of any actual Fed decision.
+
+- "Pious Prelates Pay Pricey Penalty, Promptly Pass Plate Past Puzzled Parishioners"
+  Why it works: Runaway alliteration that never breaks the P and never stops making sense. The pile-up mirrors the story it tells: the church pays out, then turns straight to the pews to make the money back. The absurd commitment is funny on its own, and the hypocrisy underneath gives it teeth.
+
+- "Beaming Bosses Brag Bots Boost Bottom Line; Burnt-Out Bookkeepers Babysitting Bots Beg to Differ"
+  Why it works: Two clauses that each hold the B for an absurdly long run, set against each other: executive cheer on one side, the exhausted people actually doing the work on the other. "Babysitting bots" is the hidden payload, and the semicolon turns the alliteration into a punchline instead of a gimmick.
 
 EXAMPLES OF MEDIOCRE HEADLINES (things that should rank lower):
 - Headlines whose joke depends on knowing the specific news story being parodied — if you stripped away the source story, would this still be funny? If not, rank it down.
