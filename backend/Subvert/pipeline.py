@@ -92,6 +92,7 @@ ANGLE TYPES (aim for variety):
 7. POP CULTURE REFERENCE — Repurposed titles/catchphrases/lyrics that add meaning, not just recognition.
 8. FORMAT-BORROWING / INSTITUTIONAL — Wear the wholesale conventions of an unrelated genre: missing-persons posters (height, last-seen location), court rulings (Geneva Convention, international tribunal), weather alerts, scientific journals, AP wire boilerplate. The format is the setup, not the punchline: it needs a pivot that only works for this subject. Skip recall and safety-notice templates ("FDA Notice: Discontinue Use Of X, Consult Your Y If Symptoms Persist") — any subject drops into them, so they read as fill-in-the-blank. E.g.: 'MISSING: Kevin Durant, 6\'10", last seen in Houston. Lakers defeat search party 112-108' — flyer format applied to a basketball game; the deadpan-realism details and "defeat search party" pivot make it land.
 9. DEADPAN PROFANITY — A perfectly straight newspaper headline with one casual profanity dropped exactly where a copy editor would never allow it, treated as ordinary vocabulary. The headline never acknowledges the swear: wire-service structure, attribution, and tone stay immaculate, and the profanity reads as weary institutional honesty rather than shock. One swear per headline, placed for rhythm. E.g.: "City Council Approves $2 Billion Stadium, Figures Fuck It" — immaculate municipal wire copy right up to the comma, then the city's official position is resignation.
+10. RUNAWAY ALLITERATION — Commit to one sound far past the point any copy editor would allow, and keep the run going. It still has to read as a real headline that makes sense and has a satirical point; the absurd commitment is the joke, word salad isn't. E.g.: "Riyadh Reopens Runways, Reassures Rattled Returnees Rockets Rarely Reach Restrooms" — airport-reopening wire copy that never breaks the R, and the reassurance it builds to is horrifying.
 
 QUALITY BAR:
 - Each angle needs a specific mechanism (pun, twist, reference), not just "make it funny"
@@ -344,6 +345,7 @@ Style guide:
 - Keep headlines punchy - no periods at the end unless it's multiple sentences
 - It's OK to twist the meaning for comedic effect
 - If the angle calls for profanity, keep the headline structure perfectly straight — one swear treated as normal copy, never winked at or piled on
+- If the angle calls for alliteration, commit all the way — keep the run going as long as the headline still makes sense
 
 Return as JSON array:
 [{{"headline": "..."}}]"""
