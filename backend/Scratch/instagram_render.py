@@ -192,7 +192,9 @@ def main():
         paper = fetch_paper(day, headline_id)
         paper['Stories'][0]['ShowOriginal'] = args.real
         if args.second:
-            paper['Stories'][1] = fetch_headline_story(args.second)
+            paper['Stories'][1:] = [fetch_headline_story(args.second)]
+        if len(paper['Stories']) < 2:
+            sys.exit(f"The {day} paper has no second story; pick one with --second")
         if args.paper:
             paper['PaperName'] = args.paper
         suffix = '-real' if args.real else ''
