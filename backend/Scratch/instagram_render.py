@@ -8,7 +8,8 @@ Usage (from backend/ with venv active):
 
 `post` makes a 4:5 feed image of one headline, dressed up as a front page with
 a random paper name and a second story from the same day. Re-run it to reroll
-the paper name and the second story, or pin the second story with --second.
+the paper name, layout and second story, or pin them with --paper,
+--image-side and --second.
 --real runs the story's real headline, styled like the fakes.
 
 `why` makes a 9:16 story image of the README, dressed up as GitHub's README
@@ -124,10 +125,12 @@ def second_story_column(story):
             f'{filler_lines(40)}</div>')
 
 
-def render_post_html(paper):
+def render_post_html(paper, image_side=None):
     headline, second = paper['Stories'][0], paper['Stories'][1]
+    image_side = image_side or random.choice(['left', 'right'])
     columns = [headline_column(headline), second_story_column(second)]
-    random.shuffle(columns)
+    if image_side == 'right':
+        columns.reverse()
     return fill_template(
         'post.html',
         paper_name=html.escape(paper['PaperName']),
@@ -177,6 +180,8 @@ def main():
                              help="run the story's real headline instead of the satirical one")
     post_parser.add_argument('--second', metavar='URL',
                              help='headline permalink to run as the second story (default: random from that day)')
+    post_parser.add_argument('--paper', metavar='NAME', help='paper name (default: random)')
+    post_parser.add_argument('--image-side', choices=['left', 'right'], help='column for the photo (default: random)')
     subcommands.add_parser('why', parents=[common], help='9:16 story image of the README')
     args = parser.parse_args()
 
@@ -188,9 +193,11 @@ def main():
         paper['Stories'][0]['ShowOriginal'] = args.real
         if args.second:
             paper['Stories'][1] = fetch_headline_story(args.second)
+        if args.paper:
+            paper['PaperName'] = args.paper
         suffix = '-real' if args.real else ''
         out_path = args.out_dir / f'{day}-{headline_id}{suffix}.jpg'
-        screenshot(render_post_html(paper), POST_SIZE, out_path)
+        screenshot(render_post_html(paper, args.image_side), POST_SIZE, out_path)
         print(story_title(paper['Stories'][0]))
     else:
         out_path = args.out_dir / 'why.jpg'
