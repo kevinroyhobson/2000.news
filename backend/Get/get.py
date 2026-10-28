@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import json
 from decimal import Decimal
 import random
+import time
 import boto3
 from boto3.dynamodb.conditions import Key
 import logging
@@ -16,6 +17,12 @@ _headlines_table = _dynamo_resource.Table('SubvertedHeadlines')
 _stories_table = _dynamo_resource.Table('Stories')
 _words_table = _dynamo_resource.Table('Words')
 _words_cache = {}
+
+# Every request picks its own four headlines, but the day partitions it picks
+# from are the same for everyone, so a warm container rereads them at most once
+# a minute however much traffic it takes.
+_PARTITION_TTL_SECONDS = 60
+_partition_cache = {}
 
 # Origins whose pages may read the API from a browser: the site, and the Vite
 # dev server.
@@ -131,10 +138,29 @@ def get_day_key(date=None):
 
 def get_headlines_for_day(day_key):
     """Query all headlines for a day from SubvertedHeadlines."""
-    logger.info(f"Getting headlines for {day_key}")
-    headlines = query_day_partition(_headlines_table, day_key)
+    headlines = cached_partition(('headlines', day_key),
+                                 lambda: query_day_partition(_headlines_table, day_key))
     logger.info(f"Got {len(headlines)} headlines for {day_key}")
     return headlines
+
+
+def cached_partition(key, query, fresh=False):
+    """A copy of the partition query() reads, reread once it's a minute old
+    or when fresh is set. Callers get a copy because they extend and append
+    to the list."""
+    now = time.monotonic()
+    cached = _partition_cache.get(key)
+    if fresh or cached is None or now - cached[0] >= _PARTITION_TTL_SECONDS:
+        _forget_expired_partitions(now)
+        cached = (now, query())
+        _partition_cache[key] = cached
+    return list(cached[1])
+
+
+def _forget_expired_partitions(now):
+    for key in [k for k, (read_at, _) in _partition_cache.items()
+                if now - read_at >= _PARTITION_TTL_SECONDS]:
+        del _partition_cache[key]
 
 
 def query_day_partition(table, day_key):
@@ -286,6 +312,10 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
     for day_key, day_headlines in by_day.items():
         story_ids_needed = {h['StoryId'] for h in day_headlines}
         stories = get_stories_for_day(day_key)
+        if not story_ids_needed <= {story.get('StoryId') for story in stories}:
+            # A headline can be newer than the cached stories when its story
+            # was filed less than a minute before it, as a scoop's is.
+            stories = get_stories_for_day(day_key, fresh=True)
         for story in stories:
             if story.get('StoryId') in story_ids_needed:
                 story_lookup[(day_key, story['StoryId'])] = story
@@ -341,9 +371,11 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
     return result
 
 
-def get_stories_for_day(day_key):
+def get_stories_for_day(day_key, fresh=False):
     """Query all stories for a day."""
-    return query_day_partition(_stories_table, day_key)
+    return cached_partition(('stories', day_key),
+                            lambda: query_day_partition(_stories_table, day_key),
+                            fresh=fresh)
 
 
 def to_headline_list(headlines, rank_field='Rank'):
