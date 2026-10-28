@@ -8,6 +8,14 @@ Globals:
     Timeout: 10
   Api:
     EndpointConfiguration: REGIONAL
+    # Ceiling on each method's traffic, so a flood can't run up the bill or
+    # take the Lambda concurrency the pipeline needs. ApiRateLimit caps each IP
+    # well below it.
+    MethodSettings:
+      - ResourcePath: "/*"
+        HttpMethod: "*"
+        ThrottlingRateLimit: 100
+        ThrottlingBurstLimit: 200
     Cors:
       AllowMethods: "'*'"
       AllowHeaders: "'*'"
@@ -491,6 +499,62 @@ Resources:
             TableName: !Ref Words
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
+
+  # Blocks an IP for the rest of a 5-minute window once it passes 300 requests
+  # in it, about one a second. Telegram's webhook is exempt: every channel's
+  # updates arrive from a few Telegram IPs, and the webhook authenticates. The
+  # match is exact and case-sensitive like API Gateway's routing, so no other
+  # path can pass as the webhook.
+  ApiRateLimit:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: news-2000-api
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      CustomResponseBodies:
+        TooManyRequests:
+          ContentType: APPLICATION_JSON
+          Content: '{"message": "Too many requests"}'
+      Rules:
+        - Name: PerIpRateLimit
+          Priority: 0
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 429
+                CustomResponseBodyKey: TooManyRequests
+          Statement:
+            RateBasedStatement:
+              Limit: 300
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                NotStatement:
+                  Statement:
+                    ByteMatchStatement:
+                      FieldToMatch:
+                        UriPath: {}
+                      PositionalConstraint: EXACTLY
+                      SearchString: /telegram/webhook
+                      TextTransformations:
+                        - Priority: 0
+                          Type: NONE
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: news-2000-api-per-ip-rate-limit
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: news-2000-api
+
+  ApiRateLimitAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    DependsOn: ServerlessRestApiProdStage
+    Properties:
+      ResourceArn: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/${ServerlessRestApi}/stages/Prod
+      WebACLArn: !GetAtt ApiRateLimit.Arn
 
 Outputs:
   GetStoriesForTodayApi:
