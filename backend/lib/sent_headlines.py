@@ -1,17 +1,17 @@
 """Records of headlines posted to the Telegram channel (TelegramSentHeadlines).
 
-A row's MessageId is how the reaction grader maps an emoji tapped in the
-channel back to a headline, and its SentAt keeps the hourly poster from
-posting the same headline again. RationaleMessageId is the bot's latest
-rationale reply under the post, which is how a reply to that rationale maps
-back to its headline.
+A row's MessageId is how a reply in the channel (a grade, or a note on the
+rationale) maps back to the headline it replies to, and its SentAt keeps the
+hourly poster from posting the same headline again. RationaleMessageId is the
+bot's latest rationale reply under the post, so a reply to that rationale maps
+back to its headline too.
 """
 
 import time
 
 from boto3.dynamodb.conditions import Key
 
-# Rows live long enough to resolve a late reaction on a post you scroll back to.
+# Rows live long enough to resolve a late reply to a post you scroll back to.
 TTL_SECONDS = 14 * 24 * 60 * 60
 
 MESSAGE_INDEX = "MessageIdIndex"
@@ -44,14 +44,11 @@ def record_rationale_reply(table, headline_id: str, message: dict) -> None:
     )
 
 
-def find_post(table, chat_id: int, message_id: int):
-    """The row for the headline posted as this message, if any."""
-    return _find(table, MESSAGE_INDEX, "MessageId", chat_id, message_id)
-
-
-def find_by_rationale_reply(table, chat_id: int, message_id: int):
-    """The row for the headline whose latest rationale reply is this message, if any."""
-    return _find(table, RATIONALE_INDEX, "RationaleMessageId", chat_id, message_id)
+def find_replied_to(table, chat_id: int, message_id: int):
+    """The row for the headline posted as this message, or whose latest
+    rationale reply is this message, if any."""
+    return (_find(table, RATIONALE_INDEX, "RationaleMessageId", chat_id, message_id)
+            or _find(table, MESSAGE_INDEX, "MessageId", chat_id, message_id))
 
 
 def _find(table, index: str, attribute: str, chat_id: int, message_id: int):

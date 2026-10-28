@@ -21,7 +21,7 @@ from lib.curation import (
     refine_rationale,
     set_rationale,
 )
-from lib.sent_headlines import find_by_rationale_reply, find_post, record_rationale_reply
+from lib.sent_headlines import find_replied_to, record_rationale_reply
 from lib.telegram import send_message
 from TelegramReaction.grade import grade_reply
 from TelegramScoop import commands
@@ -39,7 +39,7 @@ def handler(event, context):
     if not request or request.kind != "reply":
         return
 
-    sent = _sent_headline_replied_to(request)
+    sent = find_replied_to(_sent_table, request.chat_id, request.reply_to_message_id)
     if not sent:
         print(f"Message {request.message_id} doesn't reply to a headline or its "
               f"rationale; ignoring.")
@@ -71,8 +71,3 @@ def handler(event, context):
 
     count = rebuild_exemplar_cache(_headlines_table)
     print(f"Exemplar cache refreshed ({count} entries).")
-
-
-def _sent_headline_replied_to(request: commands.Request):
-    return (find_by_rationale_reply(_sent_table, request.chat_id, request.reply_to_message_id)
-            or find_post(_sent_table, request.chat_id, request.reply_to_message_id))

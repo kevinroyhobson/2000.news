@@ -1,12 +1,12 @@
-"""Post a headline to the channel on request, so it can be graded by reaction.
+"""Post a headline to the channel on request, so it can be graded.
 
 Invoked asynchronously by webhook.py when someone posts a bare 2000.news
 permalink. The bot replies with that headline and records the reply in
 TelegramSentHeadlines exactly as the hourly poster records its posts, which
-is what lets grade.py resolve an emoji tapped on the reply.
+is what lets grade.py resolve an emoji replied to it.
 
 A headline that is already in the channel isn't posted twice: the reply
-points at the original post instead, which keeps its reactions working.
+points at the original post instead, which is the one to grade.
 """
 
 import html
@@ -44,7 +44,7 @@ def handler(event, context):
 
     original_post = _original_post(headline_id, request.chat_id)
     if original_post:
-        send_message(request.chat_id, "Already posted. React on this one to grade it.",
+        send_message(request.chat_id, "Already posted. Reply to this one to grade it.",
                      reply_to_message_id=original_post)
         return
 
