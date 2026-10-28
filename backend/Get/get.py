@@ -26,9 +26,11 @@ _partition_cache = {}
 
 
 # Curation grades from the editor: outstanding/solid/meh/bad. Ungraded items
-# stay tier 2 (between curated-good and curated-bad). meh/bad never serve.
+# stay tier 2 (between curated-good and curated-bad). meh/bad never serve on
+# their own; a direct link still serves meh, but never bad.
 _GRADE_TIERS = {'outstanding': 0, 'solid': 1}
 _FILTERED_GRADES = {'meh', 'bad'}
+_UNLINKABLE_GRADE = 'bad'
 
 
 def _grade_tier(h):
@@ -37,6 +39,10 @@ def _grade_tier(h):
 
 def _is_filtered_grade(h):
     return h.get('Grade') in _FILTERED_GRADES
+
+
+def _is_linkable(h):
+    return h.get('Grade') != _UNLINKABLE_GRADE
 
 
 def get(event, context):
@@ -201,11 +207,11 @@ def select_headlines(headlines, requested_headline_id, search_query='', rank_fie
     result = []
     picked_stories = set()
 
-    # Direct-link path: serve the requested headline regardless of grade
-    # (so a meh/bad URL still resolves; user explicitly asked for that).
+    # Direct-link path: serve the requested headline unless it's graded bad,
+    # which gets the same paper as a link to a headline that doesn't exist.
     if requested_headline_id:
         for h in sorted_headlines:
-            if h['HeadlineId'] == requested_headline_id:
+            if h['HeadlineId'] == requested_headline_id and _is_linkable(h):
                 result.append(h)
                 picked_stories |= _story_keys(h)
                 break
