@@ -24,6 +24,14 @@ _words_cache = {}
 _PARTITION_TTL_SECONDS = 60
 _partition_cache = {}
 
+# Origins whose pages may read the API from a browser: the site, and the Vite
+# dev server.
+_ALLOWED_ORIGINS = {
+    'https://www.2000.news',
+    'https://2000.news',
+    'http://localhost:3000',
+}
+
 
 # Curation grades from the editor: outstanding/solid/meh/bad. Ungraded items
 # stay tier 2 (between curated-good and curated-bad). meh/bad never serve.
@@ -94,12 +102,22 @@ def get(event, context):
             'Stories': stories,
             'TopHeadlines': top_headlines,
         }, default=lambda x: int(x) if isinstance(x, Decimal) and x % 1 == 0 else float(x) if isinstance(x, Decimal) else str(x)),
-        'headers': {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        }
+        'headers': response_headers(event),
     }
+
+
+def response_headers(event):
+    headers = {'Content-Type': 'application/json', 'Vary': 'Origin'}
+    origin = request_origin(event)
+    if origin in _ALLOWED_ORIGINS:
+        headers['Access-Control-Allow-Origin'] = origin
+        headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    return headers
+
+
+def request_origin(event):
+    headers = event.get('headers') or {}
+    return next((v for k, v in headers.items() if k.lower() == 'origin'), None)
 
 
 def parse_path_params(event):

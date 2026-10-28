@@ -322,3 +322,25 @@ def test_a_story_newer_than_the_cache_is_read_past_it():
     [story] = get.enrich_with_story_details([headline], [headline])
 
     assert story["Description"] == "Fresh"
+
+
+def test_the_site_may_read_responses_from_a_browser():
+    get = _load_get_module()
+
+    headers = get.response_headers({"headers": {"Origin": "https://www.2000.news"}})
+
+    assert headers["Access-Control-Allow-Origin"] == "https://www.2000.news"
+
+
+def test_other_sites_may_not_read_responses_from_a_browser():
+    get = _load_get_module()
+
+    headers = get.response_headers({"headers": {"origin": "https://evil.example"}})
+
+    assert "Access-Control-Allow-Origin" not in headers
+
+
+def test_requests_without_an_origin_get_no_cors_headers():
+    get = _load_get_module()
+
+    assert "Access-Control-Allow-Origin" not in get.response_headers({"headers": None})
