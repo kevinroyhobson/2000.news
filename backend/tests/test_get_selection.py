@@ -304,3 +304,21 @@ def test_callers_cannot_change_the_cached_partition():
     get.get_headlines_for_day("20260728").append(_headline("extra", 2))
 
     assert [h["HeadlineId"] for h in get.get_headlines_for_day("20260728")] == ["only"]
+
+
+def test_a_story_newer_than_the_cache_is_read_past_it():
+    get = _load_get_module()
+    story_rows = [{"StoryId": "old", "Title": "Old"}]
+
+    class _StoriesTable:
+        def query(self, **kwargs):
+            return {"Items": list(story_rows)}
+
+    get._stories_table = _StoriesTable()
+    get.get_stories_for_day("20260712")
+    story_rows.append({"StoryId": "scoop", "Title": "Scoop", "Description": "Fresh"})
+    headline = {**_headline("scoop-headline", 1, story_id="scoop"), "OriginalHeadline": "Scoop"}
+
+    [story] = get.enrich_with_story_details([headline], [headline])
+
+    assert story["Description"] == "Fresh"

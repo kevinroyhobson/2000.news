@@ -126,12 +126,13 @@ def get_headlines_for_day(day_key):
     return headlines
 
 
-def cached_partition(key, query):
-    """A copy of the partition query() reads, reread once it's a minute old.
-    Callers get a copy because they extend and append to the list."""
+def cached_partition(key, query, fresh=False):
+    """A copy of the partition query() reads, reread once it's a minute old
+    or when fresh is set. Callers get a copy because they extend and append
+    to the list."""
     now = time.monotonic()
     cached = _partition_cache.get(key)
-    if cached is None or now - cached[0] >= _PARTITION_TTL_SECONDS:
+    if fresh or cached is None or now - cached[0] >= _PARTITION_TTL_SECONDS:
         _forget_expired_partitions(now)
         cached = (now, query())
         _partition_cache[key] = cached
@@ -293,6 +294,10 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
     for day_key, day_headlines in by_day.items():
         story_ids_needed = {h['StoryId'] for h in day_headlines}
         stories = get_stories_for_day(day_key)
+        if not story_ids_needed <= {story.get('StoryId') for story in stories}:
+            # A headline can be newer than the cached stories when its story
+            # was filed less than a minute before it, as a scoop's is.
+            stories = get_stories_for_day(day_key, fresh=True)
         for story in stories:
             if story.get('StoryId') in story_ids_needed:
                 story_lookup[(day_key, story['StoryId'])] = story
@@ -348,10 +353,11 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
     return result
 
 
-def get_stories_for_day(day_key):
+def get_stories_for_day(day_key, fresh=False):
     """Query all stories for a day."""
     return cached_partition(('stories', day_key),
-                            lambda: query_day_partition(_stories_table, day_key))
+                            lambda: query_day_partition(_stories_table, day_key),
+                            fresh=fresh)
 
 
 def to_headline_list(headlines, rank_field='Rank'):
