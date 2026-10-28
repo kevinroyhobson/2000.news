@@ -160,9 +160,24 @@ def apply_grade(table, year_month_day: str, headline_id: str, grade: str,
     if telegram_update_id is not None:
         kwargs['UpdateExpression'] += ', TelegramUpdateId = :u'
         values[':u'] = telegram_update_id
-        kwargs['ConditionExpression'] = (Attr('TelegramUpdateId').not_exists()
-                                         | Attr('TelegramUpdateId').lt(telegram_update_id))
+        kwargs['ConditionExpression'] = _not_superseded(telegram_update_id)
     return _update(table, kwargs)
+
+
+def claim_update(table, year_month_day: str, headline_id: str, telegram_update_id: int) -> bool:
+    """Record a Telegram update as the newest applied to a headline without
+    changing its grade, so an older update still in flight is refused.
+    Returns False if a later one already landed."""
+    return _update(table, {
+        'Key': {'YearMonthDay': year_month_day, 'HeadlineId': headline_id},
+        'UpdateExpression': 'SET TelegramUpdateId = :u',
+        'ExpressionAttributeValues': {':u': telegram_update_id},
+        'ConditionExpression': _not_superseded(telegram_update_id),
+    })
+
+
+def _not_superseded(telegram_update_id: int):
+    return Attr('TelegramUpdateId').not_exists() | Attr('TelegramUpdateId').lt(telegram_update_id)
 
 
 def set_rationale(table, year_month_day: str, headline_id: str, rationale: str) -> bool:

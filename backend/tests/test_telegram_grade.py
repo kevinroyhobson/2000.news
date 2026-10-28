@@ -29,7 +29,7 @@ def _load_grade_module():
         "boto3": _stub_module("boto3", resource=lambda *args, **kwargs: types.SimpleNamespace(
             Table=lambda name: None)),
         "lib.curation": _stub_module("lib.curation", TABLE_NAME="SubvertedHeadlines",
-                                     apply_grade=None, gen_rationale=None,
+                                     apply_grade=None, claim_update=None, gen_rationale=None,
                                      rebuild_exemplar_cache=None),
         "lib.sent_headlines": _stub_module("lib.sent_headlines", find_replied_to=None,
                                            record_rationale_reply=None),
@@ -53,6 +53,7 @@ class _Harness:
             return_value={"HeadlineId": "ccc10cac", "YearMonthDay": "20261008"})
         self.grade._load_headline = mock.Mock(return_value=headline)
         self.grade.apply_grade = mock.Mock(return_value=True)
+        self.grade.claim_update = mock.Mock(return_value=True)
         self.grade.gen_rationale = mock.Mock(return_value="It rhymes.")
         self.grade.rebuild_exemplar_cache = mock.Mock(return_value=1)
         self.grade.record_rationale_reply = mock.Mock()
@@ -94,13 +95,21 @@ def test_an_outstanding_grade_writes_a_rationale_and_rebuilds_the_exemplars():
     harness.grade.rebuild_exemplar_cache.assert_called_once()
 
 
-def test_regrading_with_the_same_grade_writes_nothing():
+def test_regrading_with_the_same_grade_leaves_the_grade_alone():
     harness = _Harness({"Grade": "outstanding", "Rationale": "Set at the CLI."})
 
     harness.grade.handler(_reply_update("🔥"), None)
 
     harness.grade.apply_grade.assert_not_called()
     harness.grade.gen_rationale.assert_not_called()
+
+
+def test_regrading_with_the_same_grade_still_supersedes_older_updates():
+    harness = _Harness({"Grade": "solid"})
+
+    harness.grade.handler(_reply_update("👍", update_id=501), None)
+
+    harness.grade.claim_update.assert_called_once_with(mock.ANY, "20261008", "ccc10cac", 501)
 
 
 def test_a_stale_update_writes_nothing():

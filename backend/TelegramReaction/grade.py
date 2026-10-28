@@ -20,6 +20,7 @@ import boto3
 from lib.curation import (
     TABLE_NAME,
     apply_grade,
+    claim_update,
     gen_rationale,
     rebuild_exemplar_cache,
 )
@@ -78,6 +79,9 @@ def _grade(item: dict, sent: dict, request: commands.Request, update_id: int) ->
     was_outstanding = item.get("Grade") == "outstanding"
 
     if item.get("Grade") == grade:
+        if not claim_update(_headlines_table, year_month_day, headline_id, update_id):
+            print(f"Not acknowledging {headline_id}: a newer grade already applied.")
+            return
         print(f"{headline_id} is already {grade}; skipping.")
         _reply(request, f"Already {GRADE_REPLY[grade]}")
         return
