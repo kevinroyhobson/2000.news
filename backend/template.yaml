@@ -8,7 +8,7 @@ Globals:
     Timeout: 10
   Api:
     EndpointConfiguration: REGIONAL
-    # Account-wide ceiling on API traffic, so a flood can't run up the bill or
+    # Ceiling on each method's traffic, so a flood can't run up the bill or
     # take the Lambda concurrency the pipeline needs. ApiRateLimit caps each IP
     # well below it.
     MethodSettings:
@@ -502,7 +502,9 @@ Resources:
 
   # Blocks an IP for the rest of a 5-minute window once it passes 300 requests
   # in it, about one a second. Telegram's webhook is exempt: every channel's
-  # updates arrive from a few Telegram IPs, and the webhook authenticates.
+  # updates arrive from a few Telegram IPs, and the webhook authenticates. The
+  # match is exact and case-sensitive like API Gateway's routing, so no other
+  # path can pass as the webhook.
   ApiRateLimit:
     Type: AWS::WAFv2::WebACL
     Properties:
@@ -533,11 +535,11 @@ Resources:
                     ByteMatchStatement:
                       FieldToMatch:
                         UriPath: {}
-                      PositionalConstraint: STARTS_WITH
-                      SearchString: /telegram/
+                      PositionalConstraint: EXACTLY
+                      SearchString: /telegram/webhook
                       TextTransformations:
                         - Priority: 0
-                          Type: LOWERCASE
+                          Type: NONE
           VisibilityConfig:
             SampledRequestsEnabled: true
             CloudWatchMetricsEnabled: true
