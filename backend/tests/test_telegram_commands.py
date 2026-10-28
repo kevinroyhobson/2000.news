@@ -126,3 +126,25 @@ def test_commands_posted_as_replies_are_still_commands():
 
 def test_reply_without_text_is_ignored():
     assert commands.parse(_reply(""), CHANNEL) is None
+
+
+def test_emoji_reply_grades_the_post_it_replies_to():
+    request = commands.parse(_reply(" 🔥 "), CHANNEL)
+    assert (request.kind, request.text) == ("grade", "outstanding")
+    assert (request.message_id, request.reply_to_message_id) == (42, 41)
+
+
+def test_grade_emoji_tolerates_a_variation_selector():
+    assert commands.parse(_reply("🔥️"), CHANNEL).text == "outstanding"
+
+
+def test_every_grading_emoji_stands_for_a_grade():
+    assert set(commands.EMOJI_GRADES.values()) == {"outstanding", "solid", "meh", "bad"}
+
+
+def test_emoji_posted_on_its_own_grades_nothing():
+    assert commands.parse(_post("🔥"), CHANNEL) is None
+
+
+def test_emoji_with_commentary_is_a_note_not_a_grade():
+    assert commands.parse(_reply("🔥 the Seuss bit"), CHANNEL).kind == "reply"

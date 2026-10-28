@@ -86,8 +86,8 @@ Resources:
       KeySchema:
         - AttributeName: HeadlineId
           KeyType: HASH
-      # Reverse lookup for TelegramReaction: an emoji arrives carrying only the
-      # chat and message it landed on, and this maps that back to a headline.
+      # Reverse lookup for a reply in the channel: it arrives carrying only the
+      # chat and message it replies to, and this maps that back to a headline.
       GlobalSecondaryIndexes:
         - IndexName: MessageIdIndex
           KeySchema:
@@ -356,9 +356,9 @@ Resources:
             ParameterName: 2000news/*
 
   # Telegram's webhook target. Authenticates the secret token and hands the
-  # update off asynchronously: emoji reactions to the grader, posted
-  # permalinks to the reposter, replies to the rationale editor, channel
-  # posts that ask for a story to the scoop worker. Grading, editing and
+  # update off asynchronously: emoji replies to the grader, posted
+  # permalinks to the reposter, other replies to the rationale editor,
+  # channel posts that ask for a story to the scoop worker. Grading, editing and
   # scooping take model calls, far longer than Telegram will wait before
   # retrying the delivery.
   TelegramWebhook:
@@ -370,7 +370,7 @@ Resources:
       Timeout: 10
       Environment:
         Variables:
-          REACTION_FUNCTION_NAME: !Ref TelegramReactionGrade
+          GRADE_FUNCTION_NAME: !Ref TelegramGrade
           PERMALINK_FUNCTION_NAME: !Ref TelegramPermalinkPost
           REFINE_FUNCTION_NAME: !Ref TelegramRationaleRefine
           SCOOP_FUNCTION_NAME: !Ref TelegramScoop
@@ -383,7 +383,7 @@ Resources:
             Method: post
       Policies:
         - LambdaInvokePolicy:
-            FunctionName: !Ref TelegramReactionGrade
+            FunctionName: !Ref TelegramGrade
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramPermalinkPost
         - LambdaInvokePolicy:
@@ -393,17 +393,20 @@ Resources:
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 
-  # Applies the grade an emoji stands for, exactly as `news curate` would:
-  # writes it, generates the rationale for outstanding picks, rebuilds the
-  # judge's exemplar cache, and replies in the channel. Timeout covers a
-  # rationale call plus a cache rebuild's token counting.
-  TelegramReactionGrade:
+  # Applies the grade an emoji replied to a headline stands for, exactly as
+  # `news curate` would: writes it, generates the rationale for outstanding
+  # picks, rebuilds the judge's exemplar cache, and replies in the channel.
+  # Timeout covers a rationale call plus a cache rebuild's token counting.
+  TelegramGrade:
     Type: AWS::Serverless::Function
     Properties:
       Handler: TelegramReaction/grade.handler
       Runtime: python3.14
       MemorySize: 1024
       Timeout: 300
+      Environment:
+        Variables:
+          TELEGRAM_CHAT_ID: "@twothousanddotnews"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TelegramSentHeadlines
@@ -438,7 +441,7 @@ Resources:
             ParameterName: 2000news/*
 
   # Replies to a 2000.news permalink posted in the channel with that
-  # headline, recorded like an hourly post so a reaction on the reply grades
+  # headline, recorded like an hourly post so an emoji replied to it grades
   # it. Covers headlines the hourly poster never picks.
   TelegramPermalinkPost:
     Type: AWS::Serverless::Function

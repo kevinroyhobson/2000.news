@@ -1,13 +1,11 @@
 """Curation core: grade writes, rationale generation, exemplar cache.
 
 Shared by the interactive CLI (Scratch/curate_headlines.py) and the Telegram
-reaction grader (TelegramReaction/grade.py) so a 🔥 tapped in the channel
-does exactly what pressing `o` at the prompt does.
+grader (TelegramReaction/grade.py) so a 🔥 replied in the channel does exactly
+what pressing `o` at the prompt does.
 """
 
 import datetime
-import functools
-import operator
 import os
 import re
 from zoneinfo import ZoneInfo
@@ -138,10 +136,10 @@ def refine_rationale(headline: str, original: str, rationale: str, instruction: 
 
 
 def apply_grade(table, year_month_day: str, headline_id: str, grade: str,
-                rationale: str = '', source: str = '', reaction_update_id: int = None) -> bool:
+                rationale: str = '', source: str = '', telegram_update_id: int = None) -> bool:
     """Write a grade (plus optional rationale) onto a headline.
 
-    With reaction_update_id set, the write also records that Telegram update
+    With telegram_update_id set, the write also records that Telegram update
     id and is refused (returning False) if a later one already landed."""
     if grade not in GRADES:
         raise ValueError(f"unknown grade {grade!r}")
@@ -159,11 +157,27 @@ def apply_grade(table, year_month_day: str, headline_id: str, grade: str,
         'ExpressionAttributeNames': {'#g': 'Grade'},
         'ExpressionAttributeValues': values,
     }
-    if reaction_update_id is not None:
-        kwargs['UpdateExpression'] += ', ReactionUpdateId = :u'
-        values[':u'] = reaction_update_id
-        kwargs['ConditionExpression'] = _not_superseded(reaction_update_id)
+    if telegram_update_id is not None:
+        kwargs['UpdateExpression'] += ', TelegramUpdateId = :u'
+        values[':u'] = telegram_update_id
+        kwargs['ConditionExpression'] = _not_superseded(telegram_update_id)
     return _update(table, kwargs)
+
+
+def claim_update(table, year_month_day: str, headline_id: str, telegram_update_id: int) -> bool:
+    """Record a Telegram update as the newest applied to a headline without
+    changing its grade, so an older update still in flight is refused.
+    Returns False if a later one already landed."""
+    return _update(table, {
+        'Key': {'YearMonthDay': year_month_day, 'HeadlineId': headline_id},
+        'UpdateExpression': 'SET TelegramUpdateId = :u',
+        'ExpressionAttributeValues': {':u': telegram_update_id},
+        'ConditionExpression': _not_superseded(telegram_update_id),
+    })
+
+
+def _not_superseded(telegram_update_id: int):
+    return Attr('TelegramUpdateId').not_exists() | Attr('TelegramUpdateId').lt(telegram_update_id)
 
 
 def set_rationale(table, year_month_day: str, headline_id: str, rationale: str) -> bool:
@@ -175,32 +189,6 @@ def set_rationale(table, year_month_day: str, headline_id: str, rationale: str) 
         'ExpressionAttributeValues': {':r': rationale},
         'ConditionExpression': Attr('Grade').eq('outstanding'),
     })
-
-
-def clear_grade(table, year_month_day: str, headline_id: str, only_if_source: str = '',
-                reaction_update_id: int = None) -> bool:
-    """Remove a grade. With only_if_source set, leaves grades from other
-    sources (e.g. the CLI) untouched and returns False. reaction_update_id
-    works as in apply_grade."""
-    kwargs = {
-        'Key': {'YearMonthDay': year_month_day, 'HeadlineId': headline_id},
-        'UpdateExpression': 'REMOVE #g, GradedAt, Rationale, GradeSource',
-        'ExpressionAttributeNames': {'#g': 'Grade'},
-    }
-    conditions = []
-    if only_if_source:
-        conditions.append(Attr('GradeSource').eq(only_if_source))
-    if reaction_update_id is not None:
-        kwargs['UpdateExpression'] += ' SET ReactionUpdateId = :u'
-        kwargs['ExpressionAttributeValues'] = {':u': reaction_update_id}
-        conditions.append(_not_superseded(reaction_update_id))
-    if conditions:
-        kwargs['ConditionExpression'] = functools.reduce(operator.and_, conditions)
-    return _update(table, kwargs)
-
-
-def _not_superseded(reaction_update_id: int):
-    return Attr('ReactionUpdateId').not_exists() | Attr('ReactionUpdateId').lt(reaction_update_id)
 
 
 def _update(table, kwargs: dict) -> bool:

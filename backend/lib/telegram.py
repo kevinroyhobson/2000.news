@@ -1,7 +1,7 @@
 """Minimal Telegram Bot API client.
 
-Shared by the hourly headline poster (TelegramAlert) and the reaction grader
-(TelegramReaction). stdlib-only, so the webhook stays cheap to cold-start.
+Shared by the hourly headline poster (TelegramAlert) and the channel workers
+(TelegramReaction, TelegramScoop). stdlib-only, so the webhook stays cheap to cold-start.
 """
 
 import html

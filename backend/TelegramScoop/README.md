@@ -69,7 +69,7 @@ from any other chat, including DMs to the bot, are ignored.
 ## Setup
 
 Same webhook as TelegramReaction: `news telegram-webhook --register` after
-deploying subscribes to `channel_post` alongside the reaction updates.
+deploying subscribes to `channel_post`.
 
 ## Files
 

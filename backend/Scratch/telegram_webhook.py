@@ -2,9 +2,8 @@
 """
 Point the Telegram bot at the webhook (and check on it later).
 
-Reaction updates and channel posts are opt-in: Telegram only delivers them if
-the bot is an administrator in the channel AND the update types are named in
-allowed_updates. Registering here does both halves of that, plus generates a
+Channel posts are opt-in: Telegram only delivers them if the bot is an
+administrator in the channel AND channel_post is named in allowed_updates. Registering here does both halves of that, plus generates a
 shared secret Telegram echoes back on every delivery so the public endpoint
 can tell real updates from anything else that finds the URL.
 
@@ -29,9 +28,10 @@ from lib.telegram import call  # noqa: E402
 
 DEFAULT_URL = 'https://api.2000.news/telegram/webhook'
 SECRET_PARAMETER = '/2000news/telegram-webhook-secret'
-# The reaction types carry emoji taps (TelegramReaction); channel_post carries
-# the links and /scoop commands (TelegramScoop). Nothing arrives otherwise.
-ALLOWED_UPDATES = ['message_reaction', 'message_reaction_count', 'channel_post']
+# channel_post carries everything the bot acts on: grades and notes posted as
+# replies, permalinks, links and /scoop commands. Reactions aren't subscribed
+# to, because anyone following the channel can react.
+ALLOWED_UPDATES = ['channel_post']
 REGION = 'us-east-2'
 
 
@@ -49,7 +49,7 @@ def main():
     ap = argparse.ArgumentParser()
     action = ap.add_mutually_exclusive_group(required=True)
     action.add_argument('--register', action='store_true',
-                        help='point the bot at the webhook and subscribe to reaction updates')
+                        help='point the bot at the webhook and subscribe to channel posts')
     action.add_argument('--info', action='store_true', help='show the current webhook status')
     action.add_argument('--delete', action='store_true', help='stop delivering updates')
     ap.add_argument('--url', default=DEFAULT_URL, help=f'webhook URL (default: {DEFAULT_URL})')

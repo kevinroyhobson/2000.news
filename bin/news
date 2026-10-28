@@ -25,7 +25,7 @@ Instagram:
   insta-why           Render the README as a 9:16 GitHub-style story for the "why?" highlight
 
 Telegram:
-  telegram-webhook    Register/inspect the emoji-reaction webhook
+  telegram-webhook    Register/inspect the channel webhook
                       (--register | --info | --delete)
 
 Pipeline:
