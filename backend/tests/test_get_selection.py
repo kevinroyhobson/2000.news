@@ -271,3 +271,36 @@ def test_mashup_story_never_shows_its_original_and_carries_its_sources():
     assert story["IsMashup"] is True
     assert story["SourceStories"] == sources
     assert story["EditorNote"] == "the collision"
+
+
+class _CountingTable(_PagedTable):
+    def __init__(self, pages):
+        super().__init__(pages)
+        self.queries = 0
+
+    def query(self, **kwargs):
+        self.queries += 1
+        return super().query(**kwargs)
+
+
+def test_a_day_partition_is_read_once_a_minute_however_many_requests():
+    get = _load_get_module()
+    get._headlines_table = _CountingTable([[_headline("only", 1)]])
+
+    with mock.patch.object(get.time, "monotonic", return_value=1000):
+        get.get_headlines_for_day("20260728")
+        get.get_headlines_for_day("20260728")
+    assert get._headlines_table.queries == 1
+
+    with mock.patch.object(get.time, "monotonic", return_value=1060):
+        get.get_headlines_for_day("20260728")
+    assert get._headlines_table.queries == 2
+
+
+def test_callers_cannot_change_the_cached_partition():
+    get = _load_get_module()
+    get._headlines_table = _PagedTable([[_headline("only", 1)]])
+
+    get.get_headlines_for_day("20260728").append(_headline("extra", 2))
+
+    assert [h["HeadlineId"] for h in get.get_headlines_for_day("20260728")] == ["only"]
