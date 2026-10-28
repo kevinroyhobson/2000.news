@@ -271,3 +271,21 @@ def test_mashup_story_never_shows_its_original_and_carries_its_sources():
     assert story["IsMashup"] is True
     assert story["SourceStories"] == sources
     assert story["EditorNote"] == "the collision"
+
+
+def test_direct_link_still_serves_a_meh_headline():
+    get = _load_get_module()
+    headlines = [_headline("ungraded", 1), _headline("meh", 2, grade="meh")]
+
+    selected = get.select_headlines(headlines, requested_headline_id="meh", rank_field="Rank")
+
+    assert selected[0]["HeadlineId"] == "meh"
+
+
+def test_direct_link_to_a_bad_headline_serves_the_paper_without_it():
+    get = _load_get_module()
+    headlines = [_headline("ungraded", 1), _headline("bad", 2, grade="bad")]
+
+    selected = get.select_headlines(headlines, requested_headline_id="bad", rank_field="Rank")
+
+    assert [h["HeadlineId"] for h in selected] == ["ungraded"]
