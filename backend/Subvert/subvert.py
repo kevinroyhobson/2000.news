@@ -119,34 +119,28 @@ def _collect_entity_hints(story: dict) -> list:
 
 
 def do_headlines_exist_for_story(year_month_day: str, story_id: str) -> bool:
-    """Check if any headlines already exist for this story. Pages through the
-    day rather than setting Limit, since DynamoDB applies Limit to the items it
-    reads before the filter, not to the matches."""
-    query = {
-        "KeyConditionExpression": Key("YearMonthDay").eq(year_month_day),
-        "FilterExpression": "StoryId = :sid",
-        "ExpressionAttributeValues": {":sid": story_id},
-        "ProjectionExpression": "HeadlineId",
-    }
-    while True:
-        response = _headlines_table.query(**query)
-        if response.get("Items"):
-            return True
-        if "LastEvaluatedKey" not in response:
-            return False
-        query["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+    """Pages through the whole day because DynamoDB applies a query's Limit to
+    the items it reads, before the filter."""
+    pages = _headline_pages(
+        year_month_day,
+        FilterExpression="StoryId = :sid",
+        ExpressionAttributeValues={":sid": story_id},
+        ProjectionExpression="HeadlineId",
+    )
+    return any(pages)
 
 
 def story_ids_with_headlines(year_month_day: str) -> set:
-    """The StoryIds that have headlines on the given day."""
-    query = {
-        "KeyConditionExpression": Key("YearMonthDay").eq(year_month_day),
-        "ProjectionExpression": "StoryId",
-    }
-    story_ids = set()
+    pages = _headline_pages(year_month_day, ProjectionExpression="StoryId")
+    return {headline["StoryId"] for page in pages for headline in page}
+
+
+def _headline_pages(year_month_day: str, **query):
+    """The day's headlines matching the query, one page of items at a time."""
+    query["KeyConditionExpression"] = Key("YearMonthDay").eq(year_month_day)
     while True:
         response = _headlines_table.query(**query)
-        story_ids |= {item["StoryId"] for item in response.get("Items", []) if "StoryId" in item}
+        yield response.get("Items", [])
         if "LastEvaluatedKey" not in response:
-            return story_ids
+            return
         query["ExclusiveStartKey"] = response["LastEvaluatedKey"]

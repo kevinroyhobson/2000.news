@@ -2,10 +2,9 @@
 
 Invoked asynchronously by TelegramWebhook. A bare URL becomes one story; a
 /scoop request goes to the scoop editor (TelegramScoop/editor.py), which
-searches the news and picks up to a few. Either way the stories are filed
-under today, subverted synchronously (Subvert/on_demand),
-ranked among themselves (mini_tournament), and the post gets a reply naming
-the best headline. The headlines wait for the next scheduled tournament to
+searches the news and picks up to a few. Either way the stories are
+subverted synchronously (Subvert/on_demand), ranked among themselves
+(mini_tournament), and the post gets a reply naming the best headline. The headlines wait for the next scheduled tournament to
 be ranked for real.
 
 Every outcome is a reply, failures included, and nothing raises out of the
@@ -126,20 +125,22 @@ def _is_with_the_writers(story: dict) -> bool:
 
 def _file_picks(picks: list, request_text: str, today: datetime.date) -> list:
     fetch_category = f"{ON_DEMAND_FETCH_PREFIX}scoop:{request_text}"
-    return [story for pick in picks if (story := _file(pick, fetch_category, _day_key(today)))]
+    stories = (_file(pick, fetch_category, _day_key(today)) for pick in picks)
+    return [story for story in stories if story]
 
 
 def _file(pick: editor.Pick, fetch_category: str, today: str):
     """The Stories item the pick's headlines are written for, carrying the
     editor's note. None if the story can't be saved."""
-    note = {"EditorNote": pick.note} if pick.note else {}
     filed = pick.candidate.filed
-    if filed:
-        if pick.note:
-            _repo.set_editor_note(filed["YearMonthDay"], filed["Title"], pick.note)
-        return {**filed, **note}
-    return _repo.save_story(pick.candidate.result, fetch_category, year_month_day=today,
-                            extra_attributes=note or None)
+    if not filed:
+        note = {"EditorNote": pick.note} if pick.note else None
+        return _repo.save_story(pick.candidate.result, fetch_category, year_month_day=today,
+                                extra_attributes=note)
+    if not pick.note:
+        return filed
+    _repo.set_editor_note(filed["YearMonthDay"], filed["Title"], pick.note)
+    return {**filed, "EditorNote": pick.note}
 
 
 def _nothing_fits(request_text: str, close_calls: list) -> str:

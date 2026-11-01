@@ -219,7 +219,8 @@ def parse_assignment(response_text: str, desk: Desk, max_picks: int) -> Assignme
 def _run_search(tool_use, desk: Desk, newsdata, search_number: int) -> dict:
     if search_number > MAX_SEARCHES:
         return _tool_result(tool_use, "Out of searches. Make your picks from what you have.", is_error=True)
-    query, title_only = tool_use.input.get("query", ""), bool(tool_use.input.get("title_only"))
+    query = tool_use.input.get("query", "")
+    title_only = bool(tool_use.input.get("title_only"))
     print(f"Scoop search {search_number}: {json.dumps(query)} (title_only={title_only})")
     try:
         response = newsdata.fetch_by_query(query, title_only=title_only)
