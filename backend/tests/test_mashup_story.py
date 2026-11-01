@@ -23,6 +23,8 @@ def _stub_module(name, **attributes):
 
 repository = _load("lib/stories_repository.py", "stories_repository_module", {
     "boto3": _stub_module("boto3"),
+    "boto3.dynamodb": _stub_module("boto3.dynamodb"),
+    "boto3.dynamodb.conditions": _stub_module("boto3.dynamodb.conditions", Key=None),
     "botocore": _stub_module("botocore"),
     "botocore.exceptions": _stub_module("botocore.exceptions", ClientError=Exception),
 })

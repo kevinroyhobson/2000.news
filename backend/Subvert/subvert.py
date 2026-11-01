@@ -119,11 +119,34 @@ def _collect_entity_hints(story: dict) -> list:
 
 
 def do_headlines_exist_for_story(year_month_day: str, story_id: str) -> bool:
-    """Check if any headlines already exist for this story."""
-    response = _headlines_table.query(
-        KeyConditionExpression=Key("YearMonthDay").eq(year_month_day),
-        FilterExpression="StoryId = :sid",
-        ExpressionAttributeValues={":sid": story_id},
-        Limit=1,
-    )
-    return len(response.get("Items", [])) > 0
+    """Check if any headlines already exist for this story. Pages through the
+    day rather than setting Limit, since DynamoDB applies Limit to the items it
+    reads before the filter, not to the matches."""
+    query = {
+        "KeyConditionExpression": Key("YearMonthDay").eq(year_month_day),
+        "FilterExpression": "StoryId = :sid",
+        "ExpressionAttributeValues": {":sid": story_id},
+        "ProjectionExpression": "HeadlineId",
+    }
+    while True:
+        response = _headlines_table.query(**query)
+        if response.get("Items"):
+            return True
+        if "LastEvaluatedKey" not in response:
+            return False
+        query["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+
+
+def story_ids_with_headlines(year_month_day: str) -> set:
+    """The StoryIds that have headlines on the given day."""
+    query = {
+        "KeyConditionExpression": Key("YearMonthDay").eq(year_month_day),
+        "ProjectionExpression": "StoryId",
+    }
+    story_ids = set()
+    while True:
+        response = _headlines_table.query(**query)
+        story_ids |= {item["StoryId"] for item in response.get("Items", []) if "StoryId" in item}
+        if "LastEvaluatedKey" not in response:
+            return story_ids
+        query["ExclusiveStartKey"] = response["LastEvaluatedKey"]

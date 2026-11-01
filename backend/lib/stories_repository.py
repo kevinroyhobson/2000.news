@@ -5,6 +5,7 @@ import hashlib
 import string
 import random
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 # Stories sent in from the Telegram channel carry this FetchCategory prefix.
@@ -109,6 +110,23 @@ class StoriesRepository:
     def get_story(self, year_month_day, title):
         response = self._table.get_item(Key={'YearMonthDay': year_month_day, 'Title': title})
         return response.get('Item')
+
+    def get_stories_for_day(self, year_month_day):
+        query = {'KeyConditionExpression': Key('YearMonthDay').eq(year_month_day)}
+        stories = []
+        while True:
+            response = self._table.query(**query)
+            stories += response.get('Items', [])
+            if 'LastEvaluatedKey' not in response:
+                return stories
+            query['ExclusiveStartKey'] = response['LastEvaluatedKey']
+
+    def set_editor_note(self, year_month_day, title, note):
+        self._table.update_item(
+            Key={'YearMonthDay': year_month_day, 'Title': title},
+            UpdateExpression='SET EditorNote = :note',
+            ExpressionAttributeValues={':note': note},
+        )
 
 
 def mashup_item(stories, editor_note):

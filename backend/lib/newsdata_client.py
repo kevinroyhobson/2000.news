@@ -36,7 +36,7 @@ class NewsdataClient:
 
         return self._fetch(params)
 
-    def fetch_by_query(self, query, use_priority=True, page_token=None):
+    def fetch_by_query(self, query, use_priority=True, page_token=None, title_only=False):
         """
         Fetch stories by search query.
 
@@ -44,12 +44,13 @@ class NewsdataClient:
             query: Search term (e.g., "barack obama", "climate summit")
             use_priority: If True, only fetch from top-tier sources
             page_token: Pagination token for fetching next page
+            title_only: If True, match the query against headlines only
 
         Returns:
             API response dict with 'results', 'nextPage', etc.
         """
         params = self._base_params()
-        params['q'] = query
+        params['qInTitle' if title_only else 'q'] = query
 
         if use_priority:
             params['prioritydomain'] = 'top'

@@ -6,7 +6,7 @@ admins can post there, so only they can make them:
 
     https://www.2000.news/20261008/ccc10cac   a permalink: post that headline for grading
     https://example.com/some-article          any other bare URL: fetch that story
-    /scoop <topic>                            search the news for a topic
+    /scoop <request>                          have the scoop editor find stories about it
     /scoop <url>                              the same as posting the URL bare
     /render <permalink> [<permalink>]         an Instagram post of the first headline,
                                               with the second as its second story
