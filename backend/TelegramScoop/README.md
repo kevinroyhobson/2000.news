@@ -59,8 +59,10 @@ article text, and picks up to 3 stories that are about what you asked. Each
 pick carries a note for the writers, saved as its `EditorNote`.
 
 Stories filed in the last two days that never got headlines are on the table
-too. Ones the paper already wrote up, and scheduled ones filed in the last two
-hours (their batch may still be running), can't be picked.
+too. Picking one moves it into today as a scoop story, since the tournament
+only ranks today's headlines and the Stories stream leaves scoop stories alone.
+Ones the paper already wrote up, and scheduled ones filed in the last two hours
+(their batch may still be running), can't be picked.
 
 When nothing fits, the reply says so and links the closest misses. Post one of
 them bare to run it anyway.

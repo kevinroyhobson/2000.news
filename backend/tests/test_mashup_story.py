@@ -124,3 +124,42 @@ def test_telegram_alert_attributes_a_single_story_as_before():
     assert message == (
         'Fake\n\nhttps://www.2000.news/20261009/abc\n\n(<a href="https://a.example/r">Real</a>, espn.com)'
     )
+
+
+class _FakeTable:
+    def __init__(self):
+        self.calls = []
+
+    def update_item(self, **kwargs):
+        self.calls.append(("update_item", kwargs))
+
+    def put_item(self, **kwargs):
+        self.calls.append(("put_item", kwargs))
+
+
+def _repository_with(table):
+    repo = repository.StoriesRepository.__new__(repository.StoriesRepository)
+    repo._table = table
+    return repo
+
+
+def test_update_story_sets_each_attribute():
+    table = _FakeTable()
+    _repository_with(table).update_story("20261101", "Title", {"FetchCategory": "telegram:scoop:x", "EditorNote": "why"})
+    _, update = table.calls[0]
+    assert update["UpdateExpression"] == "SET #a0 = :a0, #a1 = :a1"
+    assert update["ExpressionAttributeNames"] == {"#a0": "FetchCategory", "#a1": "EditorNote"}
+    assert update["ExpressionAttributeValues"] == {":a0": "telegram:scoop:x", ":a1": "why"}
+
+
+def test_refile_story_copies_it_under_the_new_day_as_a_new_story():
+    table = _FakeTable()
+    story = {"YearMonthDay": "20261031", "Title": "Why Haley Stevens", "StoryId": "2qafa",
+             "FetchCategory": "nyt_homepage", "Url": "https://nyt.example"}
+    refiled = _repository_with(table).refile_story(story, "20261101", {"FetchCategory": "telegram:scoop:x"})
+
+    assert table.calls[0][1]["Item"] == refiled
+    assert refiled["YearMonthDay"] == "20261101"
+    assert refiled["FetchCategory"] == "telegram:scoop:x"
+    assert refiled["StoryId"] != "2qafa"
+    assert refiled["Url"] == "https://nyt.example"

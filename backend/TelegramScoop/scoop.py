@@ -96,7 +96,7 @@ def _assign(request_text: str, today: datetime.date) -> editor.Assignment:
 def _filed_stories(today: datetime.date) -> tuple:
     """The stories filed over the last few days that no one has written up,
     and the titles of the rest, each with why it can't run."""
-    unwritten, unavailable = [], {}
+    unwritten_by_title, unavailable = {}, {}
     for days_ago in range(DAYS_OF_FILED_STORIES):
         day = _day_key(today - datetime.timedelta(days=days_ago))
         written_ids = story_ids_with_headlines(day)
@@ -108,7 +108,8 @@ def _filed_stories(today: datetime.date) -> tuple:
             elif _is_with_the_writers(story):
                 unavailable[story["Title"]] = "the writers are on it already"
             elif story.get("ImageUrl"):
-                unwritten.append(story)
+                unwritten_by_title.setdefault(story["Title"], story)
+    unwritten = [story for title, story in unwritten_by_title.items() if title not in unavailable]
     return unwritten, unavailable
 
 
@@ -132,15 +133,22 @@ def _file_picks(picks: list, request_text: str, today: datetime.date) -> list:
 def _file(pick: editor.Pick, fetch_category: str, today: str):
     """The Stories item the pick's headlines are written for, carrying the
     editor's note. None if the story can't be saved."""
+    note = {"EditorNote": pick.note} if pick.note else {}
     filed = pick.candidate.filed
     if not filed:
-        note = {"EditorNote": pick.note} if pick.note else None
         return _repo.save_story(pick.candidate.result, fetch_category, year_month_day=today,
-                                extra_attributes=note)
-    if not pick.note:
-        return filed
-    _repo.set_editor_note(filed["YearMonthDay"], filed["Title"], pick.note)
-    return {**filed, "EditorNote": pick.note}
+                                extra_attributes=note or None)
+    return _claim(filed, {"FetchCategory": fetch_category, **note}, today)
+
+
+def _claim(filed: dict, attributes: dict, today: str):
+    """Moves a filed story into today as an on-demand story, since the
+    tournament ranks only today's headlines and the Stories stream leaves
+    on-demand stories to the scoop."""
+    if filed["YearMonthDay"] != today:
+        return _repo.refile_story(filed, today, attributes)
+    _repo.update_story(today, filed["Title"], attributes)
+    return {**filed, **attributes}
 
 
 def _nothing_fits(request_text: str, close_calls: list) -> str:

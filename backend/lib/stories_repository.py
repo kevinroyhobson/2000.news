@@ -121,12 +121,25 @@ class StoriesRepository:
                 return stories
             query['ExclusiveStartKey'] = response['LastEvaluatedKey']
 
-    def set_editor_note(self, year_month_day, title, note):
+    def update_story(self, year_month_day, title, attributes):
+        names = list(attributes)
         self._table.update_item(
             Key={'YearMonthDay': year_month_day, 'Title': title},
-            UpdateExpression='SET EditorNote = :note',
-            ExpressionAttributeValues={':note': note},
+            UpdateExpression='SET ' + ', '.join(f'#a{i} = :a{i}' for i in range(len(names))),
+            ExpressionAttributeNames={f'#a{i}': name for i, name in enumerate(names)},
+            ExpressionAttributeValues={f':a{i}': attributes[name] for i, name in enumerate(names)},
         )
+
+    def refile_story(self, story, year_month_day, attributes):
+        """A copy of a filed story under another day, or None if that day
+        already has a story with its title."""
+        return self._put_if_new({
+            **story,
+            'YearMonthDay': year_month_day,
+            'RetrievedTime': datetime.datetime.now().isoformat(),
+            'StoryId': _new_story_id(),
+            **attributes,
+        })
 
 
 def mashup_item(stories, editor_note):
