@@ -12,3 +12,7 @@ backend/Scratch/grades.jsonl
 
 # rendered instagram images
 /instagram/
+
+# staged at deploy by backend/Instagram/stage_fonts.sh; licensed, not ours to commit
+backend/Instagram/fonts/times.ttf
+backend/Instagram/fonts/cour.ttf

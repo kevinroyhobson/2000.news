@@ -357,10 +357,10 @@ Resources:
 
   # Telegram's webhook target. Authenticates the secret token and hands the
   # update off asynchronously: emoji replies to the grader, posted
-  # permalinks to the reposter, other replies to the rationale editor,
-  # channel posts that ask for a story to the scoop worker. Grading, editing and
-  # scooping take model calls, far longer than Telegram will wait before
-  # retrying the delivery.
+  # permalinks to the reposter, other replies to the rationale editor, /render
+  # to the Instagram renderer, channel posts that ask for a story to the scoop
+  # worker. Each takes far longer than Telegram will wait before retrying the
+  # delivery.
   TelegramWebhook:
     Type: AWS::Serverless::Function
     Properties:
@@ -373,6 +373,7 @@ Resources:
           GRADE_FUNCTION_NAME: !Ref TelegramGrade
           PERMALINK_FUNCTION_NAME: !Ref TelegramPermalinkPost
           REFINE_FUNCTION_NAME: !Ref TelegramRationaleRefine
+          RENDER_FUNCTION_NAME: !Ref TelegramRender
           SCOOP_FUNCTION_NAME: !Ref TelegramScoop
           TELEGRAM_CHAT_ID: "@twothousanddotnews"
       Events:
@@ -388,6 +389,8 @@ Resources:
             FunctionName: !Ref TelegramPermalinkPost
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramRationaleRefine
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TelegramRender
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramScoop
         - SSMParameterReadPolicy:
@@ -460,6 +463,26 @@ Resources:
             TableName: !Ref SubvertedHeadlines
         - DynamoDBReadPolicy:
             TableName: !Ref Stories
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
+
+  # Replies to /render (or "rerender" replied to a render) with a headline's
+  # Instagram post, drawn by the same renderer as `news insta`.
+  TelegramRender:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TelegramRender/render.handler
+      Runtime: python3.14
+      MemorySize: 1024
+      Timeout: 60
+      # A failed render replies saying so, and a rerender reply redoes it. A
+      # retry would only reply twice.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+      Environment:
+        Variables:
+          TELEGRAM_CHAT_ID: "@twothousanddotnews"
+      Policies:
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 

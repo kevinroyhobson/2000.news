@@ -29,8 +29,8 @@ from lib.telegram import call  # noqa: E402
 DEFAULT_URL = 'https://api.2000.news/telegram/webhook'
 SECRET_PARAMETER = '/2000news/telegram-webhook-secret'
 # channel_post carries everything the bot acts on: grades and notes posted as
-# replies, permalinks, links and /scoop commands. Reactions aren't subscribed
-# to, because anyone following the channel can react.
+# replies, permalinks, links, /scoop and /render commands. Reactions aren't
+# subscribed to, because anyone following the channel can react.
 ALLOWED_UPDATES = ['channel_post']
 REGION = 'us-east-2'
 
