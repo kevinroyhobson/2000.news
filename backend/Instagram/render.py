@@ -7,8 +7,9 @@ rerolls the paper name (the API picks one per request), the photo column and
 the filler copy.
 
 The layout is the site's newspaper (Newspaper.css, Story.js), drawn with
-Pillow. Liberation Serif and Mono stand in for Times New Roman and Courier
-New, whose metrics they share.
+Pillow in Times New Roman and Courier New. Lambda gets them from
+stage_fonts.sh at deploy; a Mac has its own. Anywhere else, Liberation Serif
+and Mono stand in, with the same metrics.
 """
 
 import io
@@ -21,9 +22,9 @@ import requests
 from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 HERE = Path(__file__).resolve().parent
+FONTS = HERE / 'fonts'
+MAC_FONTS = Path('/System/Library/Fonts/Supplemental')
 BACKGROUND_IMAGE = HERE / 'nyc.jpeg'
-SERIF = HERE / 'fonts' / 'LiberationSerif-Regular.ttf'
-MONO = HERE / 'fonts' / 'LiberationMono-Regular.ttf'
 API_BASE = 'https://api.2000.news'
 
 POST_SIZE = (1080, 1350)
@@ -66,6 +67,17 @@ CREDIT_SIZE = 30
 
 MINOR_WORDS = {'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'in', 'nor', 'of', 'on', 'or', 'the', 'to', 'vs'}
 STRAIGHT_QUOTES = str.maketrans({'‘': "'", '’': "'", '“': '"', '”': '"'})
+
+
+def _first_font(*candidates):
+    font = next((path for path in candidates if path.exists()), candidates[-1])
+    if font == candidates[-1]:
+        print(f"Setting Instagram posts in the stand-in {font.name}.")
+    return font
+
+
+SERIF = _first_font(FONTS / 'times.ttf', MAC_FONTS / 'Times New Roman.ttf', FONTS / 'LiberationSerif-Regular.ttf')
+MONO = _first_font(FONTS / 'cour.ttf', MAC_FONTS / 'Courier New.ttf', FONTS / 'LiberationMono-Regular.ttf')
 
 
 class RenderError(Exception):

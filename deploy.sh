@@ -10,6 +10,7 @@ TARGET="${1:-all}"
 
 deploy_backend() {
     echo "=== Deploying backend ==="
+    backend/Instagram/stage_fonts.sh
     cd backend
     # Native build (host is Linux x86_64 + py3.14, matching the Lambda runtime).
     # Needs python3.14 on PATH — keep the venv active. Use --use-container only

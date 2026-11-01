@@ -36,9 +36,15 @@ photos and shrinks them to 1280px. On a phone, open it and save the image.
 
 `Instagram/render.py` draws the site's newspaper layout with Pillow: the
 backdrop, paper name, headline shrunk to fit, the photo at 75% grayscale, and
-gray filler bars. It brings its own backdrop and fonts (Liberation Serif and
-Mono, metric twins of Times New Roman and Courier New), so the Lambda and
-`news insta` on a laptop make the same image.
+gray filler bars, set in Times New Roman and Courier New.
+
+Those fonts can't be committed, so every backend deploy runs
+`Instagram/stage_fonts.sh`, which copies them into the package from the
+deploying machine: a Mac's own, or Microsoft's core fonts that CI installs
+with `ttf-mscorefonts-installer`. A deploy without them fails. On a laptop,
+`news insta` uses the Mac's copies directly. Anywhere else, like a test run on
+Linux, Liberation Serif and Mono stand in. They have the same metrics, so only
+the letterforms differ.
 
 ## Files
 
