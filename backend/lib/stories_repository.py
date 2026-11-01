@@ -5,6 +5,7 @@ import hashlib
 import string
 import random
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 # Stories sent in from the Telegram channel carry this FetchCategory prefix.
@@ -109,6 +110,50 @@ class StoriesRepository:
     def get_story(self, year_month_day, title):
         response = self._table.get_item(Key={'YearMonthDay': year_month_day, 'Title': title})
         return response.get('Item')
+
+    def get_stories_for_day(self, year_month_day):
+        query = {'KeyConditionExpression': Key('YearMonthDay').eq(year_month_day)}
+        stories = []
+        while True:
+            response = self._table.query(**query)
+            stories += response.get('Items', [])
+            if 'LastEvaluatedKey' not in response:
+                return stories
+            query['ExclusiveStartKey'] = response['LastEvaluatedKey']
+
+    def claim_story(self, story, attributes):
+        """Sets the attributes on a filed story, provided its FetchCategory is
+        still the one the story was read with, so only one of two overlapping
+        requests gets it. Returns whether this one did."""
+        names = list(attributes)
+        try:
+            self._table.update_item(
+                Key={'YearMonthDay': story['YearMonthDay'], 'Title': story['Title']},
+                UpdateExpression='SET ' + ', '.join(f'#a{i} = :a{i}' for i in range(len(names))),
+                ConditionExpression='FetchCategory = :read_with',
+                ExpressionAttributeNames={f'#a{i}': name for i, name in enumerate(names)},
+                ExpressionAttributeValues={
+                    **{f':a{i}': attributes[name] for i, name in enumerate(names)},
+                    ':read_with': story['FetchCategory'],
+                },
+            )
+            return True
+        except ClientError as ex:
+            if ex.response['Error']['Code'] != 'ConditionalCheckFailedException':
+                raise
+            print(f"Skipped story '{story['Title']}' because another request claimed it.")
+            return False
+
+    def refile_story(self, story, year_month_day, attributes):
+        """A copy of a filed story under another day, or None if that day
+        already has a story with its title."""
+        return self._put_if_new({
+            **story,
+            'YearMonthDay': year_month_day,
+            'RetrievedTime': datetime.datetime.now().isoformat(),
+            'StoryId': _new_story_id(),
+            **attributes,
+        })
 
 
 def mashup_item(stories, editor_note):

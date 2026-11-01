@@ -502,6 +502,8 @@ Resources:
           TELEGRAM_CHAT_ID: "@twothousanddotnews"
           SCOOP_MAX_SEARCH_STORIES: "3"
           SCOOP_EXTRACT_MODEL: claude-sonnet-5-5
+          SCOOP_EDITOR_MODEL: claude-opus-5-5
+          SCOOP_EDITOR_EFFORT: "medium"
           BRAINSTORM_MODEL: claude-opus-5-5
           GENERATE_MODEL: claude-sonnet-5-5
           TOURNAMENT_MODEL_FINAL: claude-opus-5-5
