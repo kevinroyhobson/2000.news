@@ -147,7 +147,8 @@ def _claim(filed: dict, attributes: dict, today: str):
     on-demand stories to the scoop."""
     if filed["YearMonthDay"] != today:
         return _repo.refile_story(filed, today, attributes)
-    _repo.update_story(today, filed["Title"], attributes)
+    if not _repo.claim_story(filed, attributes):
+        return None
     return {**filed, **attributes}
 
 

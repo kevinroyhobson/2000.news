@@ -121,14 +121,28 @@ class StoriesRepository:
                 return stories
             query['ExclusiveStartKey'] = response['LastEvaluatedKey']
 
-    def update_story(self, year_month_day, title, attributes):
+    def claim_story(self, story, attributes):
+        """Sets the attributes on a filed story, provided its FetchCategory is
+        still the one the story was read with, so only one of two overlapping
+        requests gets it. Returns whether this one did."""
         names = list(attributes)
-        self._table.update_item(
-            Key={'YearMonthDay': year_month_day, 'Title': title},
-            UpdateExpression='SET ' + ', '.join(f'#a{i} = :a{i}' for i in range(len(names))),
-            ExpressionAttributeNames={f'#a{i}': name for i, name in enumerate(names)},
-            ExpressionAttributeValues={f':a{i}': attributes[name] for i, name in enumerate(names)},
-        )
+        try:
+            self._table.update_item(
+                Key={'YearMonthDay': story['YearMonthDay'], 'Title': story['Title']},
+                UpdateExpression='SET ' + ', '.join(f'#a{i} = :a{i}' for i in range(len(names))),
+                ConditionExpression='FetchCategory = :read_with',
+                ExpressionAttributeNames={f'#a{i}': name for i, name in enumerate(names)},
+                ExpressionAttributeValues={
+                    **{f':a{i}': attributes[name] for i, name in enumerate(names)},
+                    ':read_with': story['FetchCategory'],
+                },
+            )
+            return True
+        except ClientError as ex:
+            if ex.response['Error']['Code'] != 'ConditionalCheckFailedException':
+                raise
+            print(f"Skipped story '{story['Title']}' because another request claimed it.")
+            return False
 
     def refile_story(self, story, year_month_day, attributes):
         """A copy of a filed story under another day, or None if that day

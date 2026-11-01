@@ -126,12 +126,19 @@ def test_telegram_alert_attributes_a_single_story_as_before():
     )
 
 
+class _ConditionFailed(Exception):
+    response = {"Error": {"Code": "ConditionalCheckFailedException"}}
+
+
 class _FakeTable:
-    def __init__(self):
+    def __init__(self, fail_conditions=False):
         self.calls = []
+        self.fail_conditions = fail_conditions
 
     def update_item(self, **kwargs):
         self.calls.append(("update_item", kwargs))
+        if self.fail_conditions:
+            raise _ConditionFailed()
 
     def put_item(self, **kwargs):
         self.calls.append(("put_item", kwargs))
@@ -143,13 +150,22 @@ def _repository_with(table):
     return repo
 
 
-def test_update_story_sets_each_attribute():
+FILED = {"YearMonthDay": "20261101", "Title": "Title", "FetchCategory": "nyt_homepage"}
+
+
+def test_claim_story_sets_each_attribute_while_the_story_is_unclaimed():
     table = _FakeTable()
-    _repository_with(table).update_story("20261101", "Title", {"FetchCategory": "telegram:scoop:x", "EditorNote": "why"})
+    claimed = _repository_with(table).claim_story(FILED, {"FetchCategory": "telegram:scoop:x", "EditorNote": "why"})
     _, update = table.calls[0]
+    assert claimed is True
     assert update["UpdateExpression"] == "SET #a0 = :a0, #a1 = :a1"
+    assert update["ConditionExpression"] == "FetchCategory = :read_with"
     assert update["ExpressionAttributeNames"] == {"#a0": "FetchCategory", "#a1": "EditorNote"}
-    assert update["ExpressionAttributeValues"] == {":a0": "telegram:scoop:x", ":a1": "why"}
+    assert update["ExpressionAttributeValues"] == {":a0": "telegram:scoop:x", ":a1": "why", ":read_with": "nyt_homepage"}
+
+
+def test_claim_story_loses_to_a_request_that_claimed_it_first():
+    assert _repository_with(_FakeTable(fail_conditions=True)).claim_story(FILED, {"EditorNote": "why"}) is False
 
 
 def test_refile_story_copies_it_under_the_new_day_as_a_new_story():
