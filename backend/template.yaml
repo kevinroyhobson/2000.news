@@ -329,7 +329,7 @@ Resources:
             TableName: !Ref Stories
         - DynamoDBReadPolicy:
             TableName: !Ref SubvertedHeadlines
-        - DynamoDBCrudPolicy:
+        - DynamoDBReadPolicy:
             TableName: !Ref Words
 
   TelegramAlert:
