@@ -7,9 +7,9 @@ the channel, and record the id in TelegramSentHeadlines.
 
 That record does double duty. Its ids form the `seen` list (bounded to the
 last SEEN_WINDOW_SECONDS, matching /today's 3-day pool) and its MessageId is
-how TelegramReaction maps an emoji tapped in the channel back to a headline —
-so rows outlive the seen window and are kept until the TTL, letting you grade
-a post you scroll back to days later.
+how a grade replied to the post in the channel maps back to a headline — so
+rows outlive the seen window and are kept until the TTL, letting you grade a
+post you scroll back to days later.
 
 Best-effort: an API or Telegram hiccup logs and exits without raising, so a
 failed hour simply retries on the next.

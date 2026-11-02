@@ -126,3 +126,77 @@ def test_commands_posted_as_replies_are_still_commands():
 
 def test_reply_without_text_is_ignored():
     assert commands.parse(_reply(""), CHANNEL) is None
+
+
+def test_emoji_reply_grades_the_post_it_replies_to():
+    request = commands.parse(_reply(" 🔥 "), CHANNEL)
+    assert (request.kind, request.text) == ("grade", "outstanding")
+    assert (request.message_id, request.reply_to_message_id) == (42, 41)
+
+
+def test_grade_emoji_tolerates_a_variation_selector():
+    assert commands.parse(_reply("🔥️"), CHANNEL).text == "outstanding"
+
+
+def test_every_grading_emoji_stands_for_a_grade():
+    assert set(commands.EMOJI_GRADES.values()) == {"outstanding", "solid", "meh", "bad"}
+
+
+def test_emoji_posted_on_its_own_grades_nothing():
+    assert commands.parse(_post("🔥"), CHANNEL) is None
+
+
+def test_emoji_with_commentary_is_a_note_not_a_grade():
+    assert commands.parse(_reply("🔥 the Seuss bit"), CHANNEL).kind == "reply"
+
+
+def _reply_to(text, replied_to):
+    update = _reply(text)
+    update["channel_post"]["reply_to_message"].update(replied_to)
+    return update
+
+
+HEADLINE = "https://www.2000.news/20261021/5c31ed2b"
+SECOND = "https://www.2000.news/20261021/a406578e"
+
+
+def test_render_carries_its_permalinks_in_order():
+    request = commands.parse(_post(f"/render {HEADLINE}\n{SECOND}"), CHANNEL)
+    assert (request.kind, request.text) == ("render", f"{HEADLINE} {SECOND}")
+
+
+def test_render_spells_permalinks_the_canonical_way():
+    request = commands.parse(_post("/Render@twothousandbot http://2000.news/20261021/5C31ED2B/?ref=x"), CHANNEL)
+    assert request.text == HEADLINE
+
+
+def test_render_without_permalinks_asks_for_usage():
+    assert commands.parse(_post("/render"), CHANNEL).text == ""
+    assert commands.parse(_post("/render https://example.com/story"), CHANNEL).text == ""
+
+
+def test_render_prefix_of_another_word_is_not_a_command():
+    assert commands.parse(_post("/renderer"), CHANNEL) is None
+
+
+def test_bare_render_replied_to_a_post_renders_its_permalink():
+    hourly_post = {"text": f"Some Headline\n\n{HEADLINE}\n\n(Real headline, nytimes.com)"}
+    request = commands.parse(_reply_to("/render", hourly_post), CHANNEL)
+    assert (request.kind, request.text) == ("render", HEADLINE)
+
+
+def test_rerender_replied_to_a_render_reads_its_caption():
+    rendered = {"caption": f"Some Headline\n{HEADLINE}\n{SECOND}"}
+    for text in ("rerender", "Re-render!", "render"):
+        request = commands.parse(_reply_to(text, rendered), CHANNEL)
+        assert (request.kind, request.text) == ("render", f"{HEADLINE} {SECOND}")
+        assert request.reply_to_message_id == 41
+
+
+def test_rerender_of_a_post_without_permalinks_asks_for_usage():
+    request = commands.parse(_reply_to("rerender", {"text": "Graded outstanding."}), CHANNEL)
+    assert (request.kind, request.text) == ("render", "")
+
+
+def test_rerender_is_not_a_note_on_the_rationale():
+    assert commands.parse(_reply("rerender this please"), CHANNEL).kind == "reply"

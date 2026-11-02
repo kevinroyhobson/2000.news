@@ -23,6 +23,8 @@ def _stub_module(name, **attributes):
 
 repository = _load("lib/stories_repository.py", "stories_repository_module", {
     "boto3": _stub_module("boto3"),
+    "boto3.dynamodb": _stub_module("boto3.dynamodb"),
+    "boto3.dynamodb.conditions": _stub_module("boto3.dynamodb.conditions", Key=None),
     "botocore": _stub_module("botocore"),
     "botocore.exceptions": _stub_module("botocore.exceptions", ClientError=Exception),
 })
@@ -122,3 +124,58 @@ def test_telegram_alert_attributes_a_single_story_as_before():
     assert message == (
         'Fake\n\nhttps://www.2000.news/20261009/abc\n\n(<a href="https://a.example/r">Real</a>, espn.com)'
     )
+
+
+class _ConditionFailed(Exception):
+    response = {"Error": {"Code": "ConditionalCheckFailedException"}}
+
+
+class _FakeTable:
+    def __init__(self, fail_conditions=False):
+        self.calls = []
+        self.fail_conditions = fail_conditions
+
+    def update_item(self, **kwargs):
+        self.calls.append(("update_item", kwargs))
+        if self.fail_conditions:
+            raise _ConditionFailed()
+
+    def put_item(self, **kwargs):
+        self.calls.append(("put_item", kwargs))
+
+
+def _repository_with(table):
+    repo = repository.StoriesRepository.__new__(repository.StoriesRepository)
+    repo._table = table
+    return repo
+
+
+FILED = {"YearMonthDay": "20261101", "Title": "Title", "FetchCategory": "nyt_homepage"}
+
+
+def test_claim_story_sets_each_attribute_while_the_story_is_unclaimed():
+    table = _FakeTable()
+    claimed = _repository_with(table).claim_story(FILED, {"FetchCategory": "telegram:scoop:x", "EditorNote": "why"})
+    _, update = table.calls[0]
+    assert claimed is True
+    assert update["UpdateExpression"] == "SET #a0 = :a0, #a1 = :a1"
+    assert update["ConditionExpression"] == "FetchCategory = :read_with"
+    assert update["ExpressionAttributeNames"] == {"#a0": "FetchCategory", "#a1": "EditorNote"}
+    assert update["ExpressionAttributeValues"] == {":a0": "telegram:scoop:x", ":a1": "why", ":read_with": "nyt_homepage"}
+
+
+def test_claim_story_loses_to_a_request_that_claimed_it_first():
+    assert _repository_with(_FakeTable(fail_conditions=True)).claim_story(FILED, {"EditorNote": "why"}) is False
+
+
+def test_refile_story_copies_it_under_the_new_day_as_a_new_story():
+    table = _FakeTable()
+    story = {"YearMonthDay": "20261031", "Title": "Why Haley Stevens", "StoryId": "2qafa",
+             "FetchCategory": "nyt_homepage", "Url": "https://nyt.example"}
+    refiled = _repository_with(table).refile_story(story, "20261101", {"FetchCategory": "telegram:scoop:x"})
+
+    assert table.calls[0][1]["Item"] == refiled
+    assert refiled["YearMonthDay"] == "20261101"
+    assert refiled["FetchCategory"] == "telegram:scoop:x"
+    assert refiled["StoryId"] != "2qafa"
+    assert refiled["Url"] == "https://nyt.example"

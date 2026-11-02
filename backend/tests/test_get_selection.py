@@ -324,6 +324,28 @@ def test_a_story_newer_than_the_cache_is_read_past_it():
     assert story["Description"] == "Fresh"
 
 
+def test_the_site_may_read_responses_from_a_browser():
+    get = _load_get_module()
+
+    headers = get.response_headers({"headers": {"Origin": "https://www.2000.news"}})
+
+    assert headers["Access-Control-Allow-Origin"] == "https://www.2000.news"
+
+
+def test_other_sites_may_not_read_responses_from_a_browser():
+    get = _load_get_module()
+
+    headers = get.response_headers({"headers": {"origin": "https://evil.example"}})
+
+    assert "Access-Control-Allow-Origin" not in headers
+
+
+def test_requests_without_an_origin_get_no_cors_headers():
+    get = _load_get_module()
+
+    assert "Access-Control-Allow-Origin" not in get.response_headers({"headers": None})
+
+
 def test_direct_link_still_serves_a_meh_headline():
     get = _load_get_module()
     headlines = [_headline("ungraded", 1), _headline("meh", 2, grade="meh")]

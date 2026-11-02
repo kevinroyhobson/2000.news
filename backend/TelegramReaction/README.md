@@ -1,12 +1,12 @@
 # TelegramReaction
 
-Grade headlines by tapping an emoji on the Telegram post. A reaction does what
-`news curate` does at the keyboard — same grades, same Claude-written rationale,
-same exemplar cache — and the bot replies to the post with the grade, plus the
+Grade headlines by replying to the Telegram post with an emoji. A grade does
+what `news curate` does at the keyboard — same grades, same Claude-written
+rationale, same exemplar cache — and the bot replies with the grade, plus the
 rationale for an outstanding pick.
 
 ```
-you tap 🔥 on a channel post
+you reply 🔥 to a channel post
         |
 Telegram --POST /telegram/webhook--> TelegramWebhook/webhook.py
         |                                (verifies the secret token, returns 200 immediately)
@@ -16,17 +16,20 @@ Telegram --POST /telegram/webhook--> TelegramWebhook/webhook.py
                -> write Grade + GradedAt        (SubvertedHeadlines)
                -> Claude writes the rationale   (outstanding only)
                -> rebuild the exemplar cache    (META/outstanding_exemplars)
-               -> reply to the post with the grade (and rationale)
+               -> reply with the grade (and rationale)
 ```
 
 The split exists because Telegram retries any webhook it doesn't get a prompt
 200 from, and grading takes a model call plus a table scan. Because grading is
-slow and Telegram sends one update per tap, invocations for the same post can
-overlap; every write carries the Telegram update id and is refused if a later
-one already landed, so the newest reaction always wins. A failed cache rebuild
-raises, so the async retry rebuilds it again.
+slow, invocations for the same post can overlap; every write carries the
+Telegram update id and is refused if a later one already landed, so the newest
+grade always wins. A failed cache rebuild raises, so the async retry rebuilds
+it again.
 
 ## Emoji
+
+Reply to the headline post, or to the bot's rationale under it, with just one
+of these:
 
 | Grade | Emoji | Effect |
 | --- | --- | --- |
@@ -35,13 +38,14 @@ raises, so the async retry rebuilds it again.
 | meh | 😐 | Pulled from the site |
 | bad | 👎 | Pulled from the site (Get filters meh/bad) |
 
-Anything unmapped is ignored, including premium custom emoji. Telegram only permits reactions from
-its own fixed set, which is why it's 🤣 and not 😂. When a post carries several
-graded emoji the most-reacted one wins, ties breaking toward the stronger
-opinion (outstanding, then bad, then solid, then meh).
+Replying a different emoji regrades. Any other reply is a note on the rationale
+(see `refine.py`).
 
-**Taking the reaction back off undoes the grade** and replies "Grade cleared". A grade
-set from the CLI is never cleared this way; only reaction-set grades are.
+## Who can grade
+
+Only the channel's admins: only they can post in a channel, and grades are
+posts. Emoji reactions grade nothing, because anyone following the channel can
+react and Telegram reports reactions anonymously.
 
 ## Grading a headline that never got posted
 
@@ -53,29 +57,23 @@ channel. To grade one of those, post its permalink to the channel on its own:
 https://www.2000.news/20261008/ccc10cac
 ```
 
-The bot replies with that headline (and its grade, if it has one), and that
-reply grades like any other post. `permalink.py` does this by
+The bot replies with that headline (and its grade, if it has one), and
+replying to that grades it like any other post. `permalink.py` does this by
 recording the reply in TelegramSentHeadlines exactly as the hourly poster
 records its posts, which also means the hourly poster won't post it again.
 
 A headline already in the channel isn't posted twice; the bot replies to the
-original post instead, so you can react there.
-
-## Who can grade
-
-Reactions in a broadcast channel are anonymous: Telegram sends aggregate counts
-with no user attached, so **any subscriber's tap grades the headline**.
+original post instead, so you can grade it there.
 
 ## Setup
 
 1. Deploy: `news deploy`.
-2. Make the bot an **administrator** of the channel. Telegram delivers reaction
-   updates only to admins.
+2. Make the bot an **administrator** of the channel. Telegram delivers channel
+   posts only to admins.
 3. Register the webhook: `news telegram-webhook --register`. This generates
    `/2000news/telegram-webhook-secret` in SSM on first run and subscribes to
-   `message_reaction` and `message_reaction_count` (plus `channel_post` for
-   TelegramScoop) — these updates are opt-in, and nothing arrives without
-   them in `allowed_updates`.
+   `channel_post`, which is opt-in: nothing arrives without it in
+   `allowed_updates`.
 4. Check it any time with `news telegram-webhook --info`; `--delete` stops
    delivery.
 
@@ -89,7 +87,9 @@ for 14 days, so you can scroll back about that far.
   Shared with TelegramScoop, since a bot gets one webhook.
 - `grade.py` — the grading worker.
 - `permalink.py` — posts a headline on request so it can be graded (`tests/test_telegram_permalink.py`).
-- `reactions.py` — update → grade, pure functions (`tests/test_telegram_reactions.py`).
+- `refine.py` — edits a rationale the way a reply asks.
+- `../TelegramScoop/commands.py` — what a channel post asks for, grades included
+  (`tests/test_telegram_commands.py`).
 - `../lib/sent_headlines.py` — the post records grading resolves, shared with TelegramAlert.
 - `../lib/curation.py` — grade writes, rationale, exemplar cache. Shared with
   `Scratch/curate_headlines.py`, which is what keeps the two paths identical.

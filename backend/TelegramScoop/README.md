@@ -1,17 +1,17 @@
 # TelegramScoop
 
-Add a story to the paper from the channel. Post a bare link, or `/scoop <topic>`
-to search the news, and the bot replies with how it went and the best headline
+Add a story to the paper from the channel. Post a bare link, or `/scoop` and
+what you're after, and the bot replies with how it went and the best headline
 it wrote.
 
 ```
-you post https://example.com/story     (or: /scoop taylor swift)
+you post https://example.com/story     (or: /scoop haley stevens endorsing mike rogers)
         |
 Telegram --POST /telegram/webhook--> TelegramWebhook/webhook.py
         |                                (verifies the secret token, returns 200 immediately)
         | async invoke
         v
-     scoop.py  -> article.py / lib.topic_search   fetch the story (or up to 3 for a search)
+     scoop.py  -> article.py / editor.py          fetch the story (or the editor's picks, up to 3)
                -> Stories table                   filed under today, FetchCategory telegram:*
                -> Subvert/on_demand.py            brainstorm + generate, synchronously
                -> mini_tournament.py              rank this request's headlines among themselves
@@ -51,14 +51,21 @@ like everything else.
 
 ## Searches
 
-`/scoop <topic>` is `news fetch-topic` from the keyboard: a newsdata.io query,
-top-tier sources, up to 3 new stories. A topic with nothing new gets a reply
-saying so.
+`/scoop <request>` goes to the scoop editor (`editor.py`). The request can be a
+name, a topic or a sentence: `/scoop joe burrow`, `/scoop find something about
+haley stevens endorsing mike rogers`. Claude reads it, searches newsdata.io
+(recent articles, top-tier US sources) up to 4 times, headlines first and then
+article text, and picks up to 3 stories that are about what you asked. Each
+pick carries a note for the writers, saved as its `EditorNote`.
 
-A plain topic is sent with every word required (`cincinnati AND reds`), since
-newsdata otherwise matches the words independently anywhere in an article.
-Quotes and operators you type are passed through, so `/scoop "joe burrow"` asks
-for the phrase and `/scoop bengals OR browns` asks for either.
+Stories filed in the last two days that never got headlines are on the table
+too. Picking one moves it into today as a scoop story, since the tournament
+only ranks today's headlines and the Stories stream leaves scoop stories alone.
+Ones the paper already wrote up, and scheduled ones filed in the last two hours
+(their batch may still be running), can't be picked.
+
+When nothing fits, the reply says so and links the closest misses. Post one of
+them bare to run it anyway.
 
 ## Who can post
 
@@ -69,7 +76,7 @@ from any other chat, including DMs to the bot, are ignored.
 ## Setup
 
 Same webhook as TelegramReaction: `news telegram-webhook --register` after
-deploying subscribes to `channel_post` alongside the reaction updates.
+deploying subscribes to `channel_post`.
 
 ## Files
 
@@ -77,4 +84,5 @@ deploying subscribes to `channel_post` alongside the reaction updates.
 - `page.py` — meta tags and visible text out of HTML, pure functions (`tests/test_scoop_page.py`).
 - `article.py` — a URL into a story dict.
 - `mini_tournament.py` — the reply's ranking.
+- `editor.py` — the scoop editor's search loop and picks (`tests/test_scoop_editor.py`).
 - `scoop.py` — the worker.

@@ -119,11 +119,28 @@ def _collect_entity_hints(story: dict) -> list:
 
 
 def do_headlines_exist_for_story(year_month_day: str, story_id: str) -> bool:
-    """Check if any headlines already exist for this story."""
-    response = _headlines_table.query(
-        KeyConditionExpression=Key("YearMonthDay").eq(year_month_day),
+    """Pages through the whole day because DynamoDB applies a query's Limit to
+    the items it reads, before the filter."""
+    pages = _headline_pages(
+        year_month_day,
         FilterExpression="StoryId = :sid",
         ExpressionAttributeValues={":sid": story_id},
-        Limit=1,
+        ProjectionExpression="HeadlineId",
     )
-    return len(response.get("Items", [])) > 0
+    return any(pages)
+
+
+def story_ids_with_headlines(year_month_day: str) -> set:
+    pages = _headline_pages(year_month_day, ProjectionExpression="StoryId")
+    return {headline["StoryId"] for page in pages for headline in page}
+
+
+def _headline_pages(year_month_day: str, **query):
+    """The day's headlines matching the query, one page of items at a time."""
+    query["KeyConditionExpression"] = Key("YearMonthDay").eq(year_month_day)
+    while True:
+        response = _headlines_table.query(**query)
+        yield response.get("Items", [])
+        if "LastEvaluatedKey" not in response:
+            return
+        query["ExclusiveStartKey"] = response["LastEvaluatedKey"]

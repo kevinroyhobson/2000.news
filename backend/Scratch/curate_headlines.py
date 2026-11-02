@@ -8,8 +8,8 @@ fires a Claude call to generate a one-sentence rationale, stored alongside the
 grade. The 'outstanding' set + rationales become exemplars in the Tournament
 system prompt.
 
-The grading itself lives in lib/curation.py, shared with the Telegram reaction
-grader — tapping 🔥 on a channel post does what pressing 'o' here does.
+The grading itself lives in lib/curation.py, shared with the Telegram
+grader — replying 🔥 to a channel post does what pressing 'o' here does.
 
 Usage (from backend/ with venv active):
     python3 Scratch/curate_headlines.py [--days 3] [--limit 200]

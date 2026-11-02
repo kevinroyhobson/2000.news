@@ -1,13 +1,16 @@
 """Minimal Telegram Bot API client.
 
-Shared by the hourly headline poster (TelegramAlert) and the reaction grader
-(TelegramReaction). stdlib-only, so the webhook stays cheap to cold-start.
+Shared by the hourly headline poster (TelegramAlert) and the channel workers
+(TelegramReaction, TelegramScoop, TelegramRender). stdlib-only, so the webhook
+stays cheap to cold-start.
 """
 
 import html
 import json
+import mimetypes
 import urllib.error
 import urllib.request
+import uuid
 
 from lib.ssm_secrets import get_secret
 
@@ -20,11 +23,15 @@ class TelegramError(RuntimeError):
 
 def call(method: str, payload: dict, timeout: int = 10):
     """POST to the Bot API and return the `result` field."""
+    return _post(method, json.dumps(payload).encode("utf-8"), "application/json", timeout)
+
+
+def _post(method: str, body: bytes, content_type: str, timeout: int):
     token = get_secret("telegram-bot-token")
     request = urllib.request.Request(
         f"{API_ROOT}/bot{token}/{method}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        data=body,
+        headers={"Content-Type": content_type},
         method="POST",
     )
     try:
@@ -49,12 +56,40 @@ def send_message(chat_id, text: str, reply_to_message_id: int = None, timeout: i
         "disable_web_page_preview": True,
     }
     if reply_to_message_id is not None:
-        payload["reply_parameters"] = {
-            "message_id": reply_to_message_id,
-            # A reply to a deleted post should still post, not fail the call.
-            "allow_sending_without_reply": True,
-        }
+        payload["reply_parameters"] = _reply_parameters(reply_to_message_id)
     return call("sendMessage", payload, timeout=timeout)
+
+
+def send_document(chat_id, file_name: str, content: bytes, caption: str = "",
+                  reply_to_message_id: int = None, timeout: int = 30) -> dict:
+    """Send a file with an HTML caption, optionally as a reply. Returns the sent
+    Message. A document arrives byte for byte; sendPhoto would recompress an
+    image and shrink it to fit 1280px."""
+    fields = {"chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML"}
+    if reply_to_message_id is not None:
+        fields["reply_parameters"] = json.dumps(_reply_parameters(reply_to_message_id))
+    body, content_type = multipart_form(fields, "document", file_name, content)
+    return _post("sendDocument", body, content_type, timeout)
+
+
+def multipart_form(fields: dict, file_field: str, file_name: str, content: bytes):
+    """A multipart/form-data body of text fields and one file, and its Content-Type."""
+    boundary = uuid.uuid4().hex
+    file_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    parts = [
+        f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode("utf-8")
+        for name, value in fields.items()
+    ]
+    parts.append(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; filename="{file_name}"\r\n'
+        f'Content-Type: {file_type}\r\n\r\n'.encode("utf-8") + content + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def _reply_parameters(message_id: int) -> dict:
+    # A reply to a deleted post should still post, not fail the call.
+    return {"message_id": message_id, "allow_sending_without_reply": True}
 
 
 def source_lines(sources: list) -> str:

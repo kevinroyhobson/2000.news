@@ -2,11 +2,12 @@
 
 Telegram expects a fast 200 and retries anything else, so this function only
 authenticates the request and hands the update to a worker asynchronously:
-emoji reactions go to the grader (TelegramReaction), a posted 2000.news
-permalink to the worker that reposts that headline for grading, replies to the
-worker that edits a rationale the way they ask, and channel posts that ask for
-a story to the scoop worker (TelegramScoop). Grading, editing and scooping
-take model calls, far longer than a webhook should hold open.
+emoji replies go to the grader (TelegramReaction), a posted 2000.news
+permalink to the worker that reposts that headline for grading, other replies
+to the worker that edits a rationale the way they ask, /render to the worker
+that makes Instagram posts (TelegramRender), and channel posts that ask for a
+story to the scoop worker (TelegramScoop). Grading, editing, rendering and
+scooping take far longer than a webhook should hold open.
 
 Authentication is the secret token Telegram echoes back in a header (set with
 setWebhook; see Scratch/telegram_webhook.py). The endpoint is public, so an
@@ -25,10 +26,10 @@ from TelegramScoop import commands
 
 SECRET_NAME = "telegram-webhook-secret"
 SECRET_HEADER = "x-telegram-bot-api-secret-token"
-REACTION_UPDATES = ("message_reaction", "message_reaction_count")
-REACTION_FUNCTION_NAME = os.environ["REACTION_FUNCTION_NAME"]
+GRADE_FUNCTION_NAME = os.environ["GRADE_FUNCTION_NAME"]
 PERMALINK_FUNCTION_NAME = os.environ["PERMALINK_FUNCTION_NAME"]
 REFINE_FUNCTION_NAME = os.environ["REFINE_FUNCTION_NAME"]
+RENDER_FUNCTION_NAME = os.environ["RENDER_FUNCTION_NAME"]
 SCOOP_FUNCTION_NAME = os.environ["SCOOP_FUNCTION_NAME"]
 CHANNEL = os.environ["TELEGRAM_CHAT_ID"]
 
@@ -65,15 +66,17 @@ def handler(event, context):
 
 
 def _worker_for(update: dict):
-    if any(key in update for key in REACTION_UPDATES):
-        return REACTION_FUNCTION_NAME
     request = commands.parse(update, CHANNEL)
     if not request:
         return None
+    if request.kind == "grade":
+        return GRADE_FUNCTION_NAME
     if request.kind == "permalink":
         return PERMALINK_FUNCTION_NAME
     if request.kind == "reply":
         return REFINE_FUNCTION_NAME
+    if request.kind == "render":
+        return RENDER_FUNCTION_NAME
     return SCOOP_FUNCTION_NAME
 
 
