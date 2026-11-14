@@ -89,7 +89,9 @@ def get(event, context):
     selected = select_headlines(headlines, requested_headline_id, search_query, rank_field, seen_as_top)
 
     # Get story details for selected headlines
-    stories = enrich_with_story_details(selected, headlines, requested_headline_id, rank_field)
+    shows_requested_original = params.get('real') == 'true'
+    stories = enrich_with_story_details(selected, headlines, requested_headline_id, rank_field,
+                                        shows_requested_original)
 
     top_headlines = get_top_headlines(headlines, rank_field=rank_field)
 
@@ -294,7 +296,8 @@ def _story_keys(h):
     return {('story', h['StoryId'])} | {('headline', title) for title in titles if title}
 
 
-def enrich_with_story_details(selected_headlines, all_headlines, requested_headline_id='', rank_field='Rank'):
+def enrich_with_story_details(selected_headlines, all_headlines, requested_headline_id='', rank_field='Rank',
+                              shows_requested_original=False):
     """Get story details from Stories table and merge with headline data."""
     if not selected_headlines:
         return []
@@ -338,12 +341,15 @@ def enrich_with_story_details(selected_headlines, all_headlines, requested_headl
         sibling_pool.sort(key=lambda s: (_grade_tier(s), s.get(rank_field) or (sib_max_rank + 1)))
         siblings = to_headline_list(sibling_pool, rank_field=rank_field)
 
-        # A direct link always shows the satirical headline. A mashup's original
-        # is several real headlines glued together, which reads as obviously fake.
+        # A direct link shows the satirical headline unless it asks for the real
+        # one. A mashup's original is several real headlines glued together,
+        # which reads as obviously fake.
         source_stories = story.get('SourceStories') or []
         is_mashup = len(source_stories) > 1
-        if h['HeadlineId'] == requested_headline_id or is_mashup:
+        if is_mashup:
             show_original = False
+        elif h['HeadlineId'] == requested_headline_id:
+            show_original = shows_requested_original
         else:
             show_original = random.random() < 0.25
 
