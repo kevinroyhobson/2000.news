@@ -88,10 +88,12 @@ def permalink(day, headline_id):
     return f'https://www.2000.news/{day}/{headline_id}'
 
 
-def fetch_paper(day, headline_id):
-    """The day's paper, led by the headline. The API leads with the day's best
-    headline instead when it has no such headline."""
-    response = requests.get(f'{API_BASE}/{day}/{headline_id}', timeout=30)
+def fetch_paper(day, headline_id, shows_real_headline=False):
+    """The day's paper, led by the headline, or by its story's real headline
+    when shows_real_headline. The API leads with the day's best headline
+    instead when it has no such headline."""
+    params = {'real': 'true'} if shows_real_headline else {}
+    response = requests.get(f'{API_BASE}/{day}/{headline_id}', params=params, timeout=30)
     response.raise_for_status()
     paper = response.json()
     stories = paper.get('Stories') or []

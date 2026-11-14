@@ -10,7 +10,8 @@ can save and post.
 ```
 
 The first link is the headline. A second link pins the second story; without
-one it's the day's next headline.
+one it's the day's next headline. A link copied in debug mode ends `?real=true`
+and runs its story's real headline instead.
 
 Don't like it? Reply `rerender` to the image. That rolls the paper name, photo
 column and filler again and keeps the links: the image's caption carries them,

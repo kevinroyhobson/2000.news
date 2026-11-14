@@ -32,7 +32,7 @@ def handler(event, context):
         return
 
     try:
-        paper = instagram.fetch_post_paper(*map(commands.permalink_key, permalinks))
+        paper = instagram.fetch_post_paper(*map(_headline_key, permalinks))
         jpeg = instagram.render_post(paper)
     except instagram.RenderError as e:
         _reply(request, f"No dice: {html.escape(str(e), quote=False)}.")
@@ -47,6 +47,10 @@ def handler(event, context):
                   caption=caption(instagram.story_title(headline), permalinks),
                   reply_to_message_id=request.message_id)
     print(f"Rendered {' '.join(permalinks)} for message {request.message_id}.")
+
+
+def _headline_key(permalink: str):
+    return (*commands.permalink_key(permalink), commands.shows_real_headline(permalink))
 
 
 def caption(title: str, permalinks: list) -> str:

@@ -200,3 +200,14 @@ def test_rerender_of_a_post_without_permalinks_asks_for_usage():
 
 def test_rerender_is_not_a_note_on_the_rationale():
     assert commands.parse(_reply("rerender this please"), CHANNEL).kind == "reply"
+
+
+def test_render_keeps_a_permalink_asking_for_the_real_headline():
+    request = commands.parse(_post(f"/render {HEADLINE}/?real=true&ref=x {SECOND}"), CHANNEL)
+    assert request.text == f"{HEADLINE}?real=true {SECOND}"
+
+
+def test_only_real_true_asks_for_the_real_headline():
+    assert commands.shows_real_headline(f"{HEADLINE}?real=true")
+    assert not commands.shows_real_headline(HEADLINE)
+    assert not commands.shows_real_headline(f"{HEADLINE}?real=false")
