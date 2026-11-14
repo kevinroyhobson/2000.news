@@ -10,7 +10,8 @@ Usage (from backend/ with venv active):
 a random paper name and a second story from the same day. Re-run it to reroll
 the paper name, layout and second story, or pin them with --paper,
 --image-side and --second.
---real runs the story's real headline, styled like the fakes.
+--real runs the story's real headline, styled like the fakes, as does a
+permalink copied in debug mode (one ending ?real=true).
 Instagram/render.py draws it, the same renderer as Telegram's /render.
 
 `why` makes a 9:16 story image of the README, dressed up as GitHub's README
@@ -34,6 +35,7 @@ from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from Instagram import render as instagram  # noqa: E402
+from TelegramScoop.commands import shows_real_headline  # noqa: E402
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -58,10 +60,11 @@ def render_post(args):
         paper = instagram.fetch_post_paper((day, headline_id), second_key)
     except instagram.RenderError as e:
         sys.exit(str(e))
-    paper['Stories'][0]['ShowOriginal'] = args.real
+    is_real = args.real or shows_real_headline(args.url)
+    paper['Stories'][0]['ShowOriginal'] = is_real
     if args.paper:
         paper['PaperName'] = args.paper
-    suffix = '-real' if args.real else ''
+    suffix = '-real' if is_real else ''
     out_path = args.out_dir / f'{day}-{headline_id}{suffix}.jpg'
     out_path.write_bytes(instagram.render_post(paper, args.image_side))
     print(instagram.story_title(paper['Stories'][0]))

@@ -19,6 +19,7 @@ Everything else posted to the channel (the hourly headlines, chat) is ignored.
 
 import re
 from dataclasses import dataclass
+from urllib.parse import parse_qs, urlsplit
 
 COMMAND = "/scoop"
 RENDER_COMMAND = "/render"
@@ -33,7 +34,7 @@ VARIATION_SELECTOR = "\ufe0f"
 _URL_ONLY = re.compile(r"^https?://\S+$")
 _PERMALINK = re.compile(r"^https?://(?:www\.)?2000\.news/(\d{8})/([0-9a-f]{8})/?(?:[?#]\S*)?$",
                         re.IGNORECASE)
-_PERMALINK_IN_TEXT = re.compile(r"https?://(?:www\.)?2000\.news/(\d{8})/([0-9a-f]{8})(?![0-9a-z])",
+_PERMALINK_IN_TEXT = re.compile(r"https?://(?:www\.)?2000\.news/\d{8}/[0-9a-f]{8}(?![0-9a-z])/?(?:\?\S*)?",
                                 re.IGNORECASE)
 _COMMAND = re.compile(rf"^{COMMAND}(?:@\w+)?(?:\s+(.*))?$", re.IGNORECASE | re.DOTALL)
 _RENDER_COMMAND = re.compile(rf"^{RENDER_COMMAND}(?:@\w+)?(?:\s+(.*))?$", re.IGNORECASE | re.DOTALL)
@@ -80,6 +81,11 @@ def permalink_key(url: str):
     return (match.group(1), match.group(2).lower()) if match else None
 
 
+def shows_real_headline(url: str) -> bool:
+    """Whether a permalink asks for its story's real headline, as one copied in debug mode does."""
+    return parse_qs(urlsplit(url).query).get("real") == ["true"]
+
+
 def _classify(text: str, replied_to_text: str):
     render = _RENDER_COMMAND.match(text)
     if render:
@@ -103,8 +109,13 @@ def _classify_reply(text: str, replied_to_text: str):
 
 def _render_targets(text: str) -> str:
     """Every 2000.news permalink in text, in order, spelled the canonical way."""
-    return " ".join(f"https://www.2000.news/{day}/{headline_id.lower()}"
-                    for day, headline_id in _PERMALINK_IN_TEXT.findall(text))
+    return " ".join(_canonical_permalink(url) for url in _PERMALINK_IN_TEXT.findall(text))
+
+
+def _canonical_permalink(url: str) -> str:
+    day, headline_id = permalink_key(url)
+    canonical = f"https://www.2000.news/{day}/{headline_id}"
+    return f"{canonical}?real=true" if shows_real_headline(url) else canonical
 
 
 def _classify_link(text: str):
