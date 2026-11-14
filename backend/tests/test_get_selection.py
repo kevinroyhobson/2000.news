@@ -344,3 +344,22 @@ def test_requests_without_an_origin_get_no_cors_headers():
     get = _load_get_module()
 
     assert "Access-Control-Allow-Origin" not in get.response_headers({"headers": None})
+
+
+def _enrich_requested(get, shows_requested_original):
+    headline = {**_headline("real", 1), "OriginalHeadline": "the real one"}
+    get.get_stories_for_day = lambda day: [{"StoryId": "real", "Title": "the real one"}]
+    with mock.patch.object(get.random, "random", return_value=0):
+        [story] = get.enrich_with_story_details([headline], [headline], requested_headline_id="real",
+                                                shows_requested_original=shows_requested_original)
+    return story
+
+
+def test_a_direct_link_shows_the_satirical_headline():
+    get = _load_get_module()
+    assert _enrich_requested(get, shows_requested_original=False)["ShowOriginal"] is False
+
+
+def test_a_direct_link_asking_for_the_real_headline_shows_it():
+    get = _load_get_module()
+    assert _enrich_requested(get, shows_requested_original=True)["ShowOriginal"] is True

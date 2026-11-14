@@ -66,9 +66,13 @@ export default function Newspaper() {
     if (isDebugMode) {
       params.set('debug', 'true');
     }
-    const searchQuery = new URLSearchParams(window.location.search).get('q');
+    const pageParams = new URLSearchParams(window.location.search);
+    const searchQuery = pageParams.get('q');
     if (searchQuery) {
       params.set('q', searchQuery);
+    }
+    if (pageParams.get('real') === 'true') {
+      params.set('real', 'true');
     }
     const seenIds = getSeenHeadlineIds();
     if (seenIds.length > 0) {
