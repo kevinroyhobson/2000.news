@@ -211,3 +211,40 @@ def test_only_real_true_asks_for_the_real_headline():
     assert commands.shows_real_headline(f"{HEADLINE}?real=true")
     assert not commands.shows_real_headline(HEADLINE)
     assert not commands.shows_real_headline(f"{HEADLINE}?real=false")
+
+
+def test_alter_carries_its_permalink_then_its_instruction():
+    request = commands.parse(_post(f"/alter {HEADLINE}  say graphics card, not card "), CHANNEL)
+    assert (request.kind, request.text) == ("alter", f"{HEADLINE} say graphics card, not card")
+    assert commands.alter_target(request.text) == (HEADLINE, "say graphics card, not card")
+
+
+def test_alter_takes_its_instruction_from_the_next_line():
+    request = commands.parse(_post(f"/alter {HEADLINE}\nsay graphics card"), CHANNEL)
+    assert commands.alter_target(request.text) == (HEADLINE, "say graphics card")
+
+
+def test_alter_alters_the_satirical_headline_of_a_debug_permalink():
+    request = commands.parse(_post(f"/alter {HEADLINE}/?real=true shorter"), CHANNEL)
+    assert commands.alter_target(request.text) == (HEADLINE, "shorter")
+
+
+def test_alter_replied_to_a_post_alters_its_permalink():
+    hourly_post = {"text": f"Some Headline\n\n{HEADLINE}\n\n(Real headline, nytimes.com)"}
+    request = commands.parse(_reply_to("/alter say graphics card", hourly_post), CHANNEL)
+    assert commands.alter_target(request.text) == (HEADLINE, "say graphics card")
+
+
+def test_alter_with_its_own_permalink_ignores_the_post_it_replies_to():
+    request = commands.parse(_reply_to(f"/alter {SECOND} shorter", {"text": HEADLINE}), CHANNEL)
+    assert commands.alter_target(request.text) == (SECOND, "shorter")
+
+
+def test_alter_without_a_permalink_or_instruction_leaves_it_out():
+    assert commands.alter_target(commands.parse(_post("/alter shorter"), CHANNEL).text) == ("", "shorter")
+    assert commands.alter_target(commands.parse(_post(f"/alter {HEADLINE}"), CHANNEL).text) == (HEADLINE, "")
+    assert commands.alter_target(commands.parse(_post("/alter"), CHANNEL).text) == ("", "")
+
+
+def test_alter_prefix_of_another_word_is_not_a_command():
+    assert commands.parse(_post("/alteration"), CHANNEL) is None
