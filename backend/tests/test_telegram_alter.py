@@ -34,7 +34,7 @@ def _load_alter_module():
         "lib.curation": _stub_module("lib.curation", TABLE_NAME="SubvertedHeadlines",
                                      alter_headline=None, rebuild_exemplar_cache=None,
                                      set_headline=None),
-        "lib.telegram": _stub_module("lib.telegram", send_message=None),
+        "lib.telegram": _stub_module("lib.telegram", TelegramError=RuntimeError, send_message=None),
         "TelegramScoop": _stub_module("TelegramScoop", commands=commands),
     })
 
@@ -73,6 +73,13 @@ def test_alter_rewrites_the_headline_and_replies_with_its_permalink():
 
 def test_altering_an_outstanding_headline_rebuilds_the_exemplars():
     harness = _Harness({"Headline": CARD, "Grade": "outstanding"})
+    harness.alter.handler(_alter_update(f"/alter {PERMALINK} graphics card"), None)
+    harness.alter.rebuild_exemplar_cache.assert_called_once()
+
+
+def test_a_failed_reply_still_rebuilds_the_exemplars():
+    harness = _Harness({"Headline": CARD, "Grade": "outstanding"})
+    harness.alter.send_message.side_effect = RuntimeError("sendMessage HTTP 502")
     harness.alter.handler(_alter_update(f"/alter {PERMALINK} graphics card"), None)
     harness.alter.rebuild_exemplar_cache.assert_called_once()
 

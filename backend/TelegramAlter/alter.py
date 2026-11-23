@@ -17,7 +17,7 @@ import traceback
 import boto3
 
 from lib.curation import TABLE_NAME, alter_headline, rebuild_exemplar_cache, set_headline
-from lib.telegram import send_message
+from lib.telegram import TelegramError, send_message
 from TelegramScoop import commands
 
 CHANNEL = os.environ["TELEGRAM_CHAT_ID"]
@@ -62,7 +62,11 @@ def handler(event, context):
     print(f"Altered {year_month_day}/{headline_id} from message {request.message_id}: "
           f"{current!r} -> {altered!r}")
 
-    _reply(request, altered_reply(current, altered, permalink))
+    try:
+        _reply(request, altered_reply(current, altered, permalink))
+    except TelegramError as e:
+        # The headline is already altered; the judge still needs its new wording.
+        print(f"Reply to message {request.message_id} failed ({e}).")
     if headline.get("Grade") == "outstanding":
         count = rebuild_exemplar_cache(_headlines_table)
         print(f"Exemplar cache refreshed ({count} entries).")
