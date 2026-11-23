@@ -358,9 +358,9 @@ Resources:
   # Telegram's webhook target. Authenticates the secret token and hands the
   # update off asynchronously: emoji replies to the grader, posted
   # permalinks to the reposter, other replies to the rationale editor, /render
-  # to the Instagram renderer, channel posts that ask for a story to the scoop
-  # worker. Each takes far longer than Telegram will wait before retrying the
-  # delivery.
+  # to the Instagram renderer, /alter to the headline rewriter, channel posts
+  # that ask for a story to the scoop worker. Each takes far longer than
+  # Telegram will wait before retrying the delivery.
   TelegramWebhook:
     Type: AWS::Serverless::Function
     Properties:
@@ -374,6 +374,7 @@ Resources:
           PERMALINK_FUNCTION_NAME: !Ref TelegramPermalinkPost
           REFINE_FUNCTION_NAME: !Ref TelegramRationaleRefine
           RENDER_FUNCTION_NAME: !Ref TelegramRender
+          ALTER_FUNCTION_NAME: !Ref TelegramAlter
           SCOOP_FUNCTION_NAME: !Ref TelegramScoop
           TELEGRAM_CHAT_ID: "@twothousanddotnews"
       Events:
@@ -391,6 +392,8 @@ Resources:
             FunctionName: !Ref TelegramRationaleRefine
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramRender
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TelegramAlter
         - LambdaInvokePolicy:
             FunctionName: !Ref TelegramScoop
         - SSMParameterReadPolicy:
@@ -483,6 +486,30 @@ Resources:
         Variables:
           TELEGRAM_CHAT_ID: "@twothousanddotnews"
       Policies:
+        - SSMParameterReadPolicy:
+            ParameterName: 2000news/*
+
+  # Rewrites a headline in place the way /alter asks, logging the old wording
+  # in its Alterations, and rebuilds the judge's exemplar cache when the
+  # headline is one of them. Timeout matches the rationale editor's, which
+  # does the same work.
+  TelegramAlter:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: TelegramAlter/alter.handler
+      Runtime: python3.14
+      MemorySize: 1024
+      Timeout: 300
+      # A retry would apply the same instruction to the already-altered
+      # headline and reply twice. A failed alter is redone by sending it again.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+      Environment:
+        Variables:
+          TELEGRAM_CHAT_ID: "@twothousanddotnews"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubvertedHeadlines
         - SSMParameterReadPolicy:
             ParameterName: 2000news/*
 

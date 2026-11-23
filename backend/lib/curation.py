@@ -1,4 +1,5 @@
-"""Curation core: grade writes, rationale generation, exemplar cache.
+"""Curation core: grade writes, rationale generation, headline alterations,
+exemplar cache.
 
 Shared by the interactive CLI (Scratch/curate_headlines.py) and the Telegram
 grader (TelegramReaction/grade.py) so a 🔥 replied in the channel does exactly
@@ -61,6 +62,14 @@ The current explanation is usually good already; the job is to make it better, n
 {RATIONALE_STYLE_EXAMPLES}
 
 Reply with ONLY the edited explanation. No preamble, no quotes around it."""
+
+ALTER_SYSTEM = """You edit satirical news headlines for a comedy news site.
+
+You get the satirical headline, the real news headline it riffs on, and the editor's instruction for changing it, in plain English. The instruction might ask you to clarify a reference, swap a word, sharpen the joke, tighten it, or fix the facts. Apply it to the headline.
+
+The headline is already good, which is why the editor is keeping it; the job is to make the change asked for, not to write a new joke. Keep whatever the instruction doesn't touch word for word, and match the headline's capitalization and punctuation. When the instruction spells out the new headline, or the exact words to use, use them as written.
+
+Reply with ONLY the edited headline. No preamble, no quotes around it."""
 
 
 _anthropic_client = None
@@ -133,6 +142,28 @@ def refine_rationale(headline: str, original: str, rationale: str, instruction: 
     content = (f'SATIRICAL: "{headline}"\nORIGINAL: "{original}"\n'
                f'CURRENT EXPLANATION: "{rationale}"\nEDITOR\'S INSTRUCTION: "{instruction}"')
     return _ask(REFINE_SYSTEM, content, on_refusal)
+
+
+def alter_headline(headline: str, original: str, instruction: str, on_refusal=None) -> str:
+    """Edit a headline the way the editor's plain-English instruction asks."""
+    content = (f'SATIRICAL: "{headline}"\nORIGINAL: "{original}"\n'
+               f'EDITOR\'S INSTRUCTION: "{instruction}"')
+    return _ask(ALTER_SYSTEM, content, on_refusal)
+
+
+def set_headline(table, year_month_day: str, headline_id: str, current: str, altered: str,
+                 instruction: str) -> bool:
+    """Replace a headline's text and log the change in its Alterations, oldest
+    first. Refused (returning False) if the text is no longer current."""
+    alteration = {'Headline': current, 'AlteredTo': altered, 'Instruction': instruction,
+                  'AlteredAt': _now_iso()}
+    return _update(table, {
+        'Key': {'YearMonthDay': year_month_day, 'HeadlineId': headline_id},
+        'UpdateExpression': ('SET Headline = :altered, '
+                             'Alterations = list_append(if_not_exists(Alterations, :none), :alteration)'),
+        'ExpressionAttributeValues': {':altered': altered, ':none': [], ':alteration': [alteration]},
+        'ConditionExpression': Attr('Headline').eq(current),
+    })
 
 
 def apply_grade(table, year_month_day: str, headline_id: str, grade: str,
